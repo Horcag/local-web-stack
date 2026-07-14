@@ -1,0 +1,55 @@
+name: local-web-stack
+
+services:
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: local-web-valkey
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: unless-stopped
+    volumes:
+      - valkey-data:/data
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: local-web-searxng
+    restart: unless-stopped
+    depends_on:
+      - redis
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      SEARXNG_BASE_URL: "http://127.0.0.1:8088/"
+      UWSGI_WORKERS: "4"
+      UWSGI_THREADS: "4"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+
+  crawl4ai:
+    build: .
+    container_name: local-web-crawl4ai
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11235:11235"
+    environment:
+      CRAWL4AI_CACHE_MODE: "enabled"
+      CRAWL4AI_PERSISTENT_CONTEXT: "true"
+      CRAWL4AI_USER_DATA_DIR: "/app/work/browser-profile"
+      CRAWL4AI_SERIALIZE_REQUESTS: "true"
+      CRAWL4AI_PAGE_TIMEOUT_MS: "60000"
+      CRAWL4AI_WAIT_UNTIL: "domcontentloaded"
+      CRAWL4AI_ACCEPT_LANGUAGE: "en-US,en;q=0.9,ru;q=0.8"
+      CRAWL4AI_BROWSER_TYPE: "undetected"
+      CRAWL4AI_ENABLE_STEALTH: "true"
+      CRAWL4AI_USER_AGENT_MODE: "random"
+      CRAWL4AI_MAGIC: "true"
+      CRAWL4AI_SIMULATE_USER: "true"
+      CRAWL4AI_OVERRIDE_NAVIGATOR: "true"
+      CRAWL4AI_DELAY_BEFORE_RETURN_HTML: "2.5"
+      CRAWL4AI_MEAN_DELAY: "1.0"
+      CRAWL4AI_MAX_DELAY_RANGE: "1.5"
+      CRAWL4AI_DOMAIN_DELAY_SECONDS: "3.0"
+    volumes:
+      - ./work/crawl4ai:/app/work
+
+volumes:
+  valkey-data:

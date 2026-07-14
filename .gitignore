@@ -1,0 +1,16 @@
+# Python virtual environments and caches
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+
+# Local work directory containing logs, pids, browser profiles, and database files
+work/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
