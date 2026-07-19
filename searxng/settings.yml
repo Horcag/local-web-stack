@@ -23,6 +23,10 @@ use_default_settings:
       - qwant images
       - qwant videos
       - yep
+      # Dark-web engines are not part of this local general-search stack and
+      # currently fail initialization in the upstream image.
+      - ahmia
+      - torch
 
 general:
   debug: false
@@ -44,7 +48,7 @@ server:
   image_proxy: true
   method: "GET"
 
-redis:
+valkey:
   url: redis://redis:6379/0
 
 ui:
@@ -55,12 +59,21 @@ outgoing:
   max_request_timeout: 15.0
   pool_connections: 25
   pool_maxsize: 8
+  proxies:
+    all://:
+      - socks5h://byedpi:1080
 
 engines:
   # Curated general-search pool. The MCP wrapper also passes this list
   # explicitly for normal web_search calls so one query does not fan out across
   # every default SearXNG engine.
   - name: bing
+    disabled: false
+    categories: [general, web]
+    timeout: 10.0
+
+  - name: brave
+    engine: brave
     disabled: false
     categories: [general, web]
     timeout: 10.0
@@ -75,6 +88,11 @@ engines:
     timeout: 10.0
 
   - name: presearch
+    disabled: true
+    categories: [general, web]
+    timeout: 10.0
+
+  - name: yandex
     disabled: false
     categories: [general, web]
     timeout: 10.0

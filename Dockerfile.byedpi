@@ -1,0 +1,12 @@
+# Build stage
+FROM alpine:latest AS build
+RUN apk add --no-cache git build-base linux-headers
+WORKDIR /src
+RUN git clone --depth=1 https://github.com/hufrea/byedpi.git .
+RUN make
+
+# Final stage
+FROM alpine:latest
+RUN apk add --no-cache libc6-compat
+COPY --from=build /src/ciadpi /bin/ciadpi
+ENTRYPOINT ["/bin/ciadpi"]

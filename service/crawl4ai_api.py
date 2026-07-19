@@ -164,6 +164,9 @@ def _cache_mode(value: Literal["bypass", "enabled"]) -> CacheMode:
 
 def _proxy_config(request: CrawlRequest) -> dict[str, str] | None:
     if not request.proxy_server:
+        default_proxy = os.environ.get("CRAWL4AI_DEFAULT_PROXY", "").strip()
+        if default_proxy:
+            return {"server": default_proxy}
         return None
     proxy = {"server": request.proxy_server}
     if request.proxy_username:
@@ -335,11 +338,19 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
         error = getattr(result, "error_message", None) or "Crawl failed"
         raise HTTPException(status_code=502, detail=error)
 
+    markdown_obj = getattr(result, "markdown", None)
+    if markdown_obj is None:
+        markdown_str = ""
+    elif hasattr(markdown_obj, "raw_markdown"):
+        markdown_str = markdown_obj.raw_markdown or ""
+    else:
+        markdown_str = str(markdown_obj)
+
     metadata = getattr(result, "metadata", None) or {}
     return {
         "url": str(request.url),
         "cache_mode": request.cache_mode,
-        "markdown": str(getattr(result, "markdown", "")),
+        "markdown": markdown_str,
         "title": metadata.get("title"),
         "metadata": metadata,
     }

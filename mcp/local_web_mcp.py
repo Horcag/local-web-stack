@@ -17,11 +17,12 @@ from mcp.server.fastmcp import FastMCP
 
 
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://127.0.0.1:8088").rstrip("/")
+SEARXNG_CLIENT_IP = "127.0.0.1"
 CRAWL4AI_URL = os.environ.get("CRAWL4AI_URL", "http://127.0.0.1:11235").rstrip("/")
 CRAWL4AI_API_TOKEN = os.environ.get("CRAWL4AI_API_TOKEN", "").strip()
 DEFAULT_SEARCH_ENGINES = os.environ.get(
     "LOCAL_WEB_SEARCH_ENGINES",
-    "bing,google,mojeek,presearch",
+    "bing,brave,google,mojeek,yandex",
 ).strip()
 
 
@@ -62,6 +63,10 @@ def _crawl4ai_headers() -> dict[str, str]:
     if not CRAWL4AI_API_TOKEN:
         return {}
     return {"Authorization": f"Bearer {CRAWL4AI_API_TOKEN}"}
+
+
+def _searxng_headers() -> dict[str, str]:
+    return {"X-Real-IP": SEARXNG_CLIENT_IP}
 
 
 def _cache_key(params: dict[str, str]) -> tuple[tuple[str, str], ...]:
@@ -118,7 +123,11 @@ async def web_search(
         payload = cached_payload
     else:
         async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT_SECONDS) as client:
-            response = await client.get(f"{SEARXNG_URL}/search", params=params)
+            response = await client.get(
+                f"{SEARXNG_URL}/search",
+                params=params,
+                headers=_searxng_headers(),
+            )
             response.raise_for_status()
             payload = response.json()
         _set_search_cache(params, payload)
@@ -185,6 +194,7 @@ async def local_web_health() -> dict[str, Any]:
             response = await client.get(
                 f"{SEARXNG_URL}/search",
                 params={"q": "example", "format": "json"},
+                headers=_searxng_headers(),
             )
             status["searxng"] = response.status_code
         except Exception as exc:  # noqa: BLE001

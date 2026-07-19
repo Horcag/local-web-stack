@@ -32,6 +32,7 @@ class FakeResponse:
 
 class FakeAsyncClient:
     calls: list[tuple[str, str]] = []
+    get_calls: list[tuple[str, dict[str, str]]] = []
 
     def __init__(self, **_kwargs):
         pass
@@ -42,8 +43,9 @@ class FakeAsyncClient:
     async def __aexit__(self, *_args):
         return None
 
-    async def get(self, url: str, **_kwargs) -> FakeResponse:
+    async def get(self, url: str, **kwargs) -> FakeResponse:
         self.calls.append(("GET", url))
+        self.get_calls.append((url, kwargs.get("headers", {})))
         return FakeResponse(
             {
                 "results": [
@@ -66,6 +68,7 @@ class LocalWebMcpTests(unittest.TestCase):
     def setUp(self) -> None:
         local_web_mcp._SEARCH_CACHE.clear()
         FakeAsyncClient.calls.clear()
+        FakeAsyncClient.get_calls.clear()
 
     def test_streamable_http_is_stateless_json(self) -> None:
         self.assertTrue(local_web_mcp.mcp.settings.stateless_http)
@@ -88,6 +91,24 @@ class LocalWebMcpTests(unittest.TestCase):
             [
                 ("GET", f"{local_web_mcp.SEARXNG_URL}/search"),
                 ("POST", f"{local_web_mcp.CRAWL4AI_URL}/md"),
+            ],
+        )
+
+    def test_searxng_requests_include_the_local_client_ip(self) -> None:
+        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
+            asyncio.run(local_web_mcp.web_search("example", engines="test"))
+            asyncio.run(local_web_mcp.local_web_health())
+
+        searxng_headers = [
+            headers
+            for url, headers in FakeAsyncClient.get_calls
+            if url.startswith(local_web_mcp.SEARXNG_URL)
+        ]
+        self.assertEqual(
+            searxng_headers,
+            [
+                {"X-Real-IP": local_web_mcp.SEARXNG_CLIENT_IP},
+                {"X-Real-IP": local_web_mcp.SEARXNG_CLIENT_IP},
             ],
         )
 

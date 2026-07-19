@@ -2,9 +2,10 @@ $ErrorActionPreference = "Stop"
 
 $searxng = "http://127.0.0.1:8088"
 $crawl4ai = "http://127.0.0.1:11235"
+$searxngHeaders = @{ "X-Real-IP" = "127.0.0.1" }
 
 Write-Host "Checking SearXNG JSON API..."
-$search = Invoke-RestMethod -Method Get -Uri "$searxng/search?q=example&format=json" -TimeoutSec 30
+$search = Invoke-RestMethod -Method Get -Uri "$searxng/search?q=example&format=json" -Headers $searxngHeaders -TimeoutSec 30
 $count = @($search.results).Count
 Write-Host "SearXNG OK: $count results"
 

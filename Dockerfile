@@ -19,13 +19,19 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 
 # Create a virtual environment and install dependencies using uv
-RUN uv venv && uv sync --frozen
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv && uv sync --frozen
+
+# Patch crawl4ai's Pydantic model validation bug for empty markdown results
+RUN .venv/bin/python -c "import pathlib; p = pathlib.Path('.venv/lib/python3.12/site-packages/crawl4ai/models.py'); content = p.read_text(encoding='utf-8'); content = content.replace('raw_markdown: str', 'raw_markdown: str = \"\"').replace('markdown_with_citations: str', 'markdown_with_citations: str = \"\"').replace('references_markdown: str', 'references_markdown: str = \"\"'); p.write_text(content, encoding='utf-8')"
 
 # Install Playwright Chromium and its Linux system dependencies (fonts, libraries)
-RUN .venv/bin/playwright install --with-deps chromium
+RUN --mount=type=cache,target=/root/.cache/ms-playwright \
+    .venv/bin/playwright install --with-deps chromium
 
 # Copy API service code
 COPY service ./service
+COPY mcp ./mcp
 
 EXPOSE 11235
 

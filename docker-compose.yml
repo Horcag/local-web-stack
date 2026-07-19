@@ -9,12 +9,21 @@ services:
     volumes:
       - valkey-data:/data
 
+  byedpi:
+    build:
+      context: .
+      dockerfile: Dockerfile.byedpi
+    container_name: local-web-byedpi
+    restart: unless-stopped
+    command: --ip 0.0.0.0 --port 1080 -s 1 -d 1 -r 1
+
   searxng:
     image: searxng/searxng:latest
     container_name: local-web-searxng
     restart: unless-stopped
     depends_on:
       - redis
+      - byedpi
     ports:
       - "127.0.0.1:8088:8080"
     environment:
@@ -28,9 +37,12 @@ services:
     build: .
     container_name: local-web-crawl4ai
     restart: unless-stopped
+    depends_on:
+      - byedpi
     ports:
       - "127.0.0.1:11235:11235"
     environment:
+      CRAWL4AI_DEFAULT_PROXY: "socks5://byedpi:1080"
       CRAWL4AI_CACHE_MODE: "enabled"
       CRAWL4AI_PERSISTENT_CONTEXT: "true"
       CRAWL4AI_USER_DATA_DIR: "/app/work/browser-profile"
@@ -50,6 +62,23 @@ services:
       CRAWL4AI_DOMAIN_DELAY_SECONDS: "3.0"
     volumes:
       - ./work/crawl4ai:/app/work
+
+  mcp:
+    build: .
+    container_name: local-web-mcp
+    restart: unless-stopped
+    depends_on:
+      - searxng
+      - crawl4ai
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      SEARXNG_URL: "http://local-web-searxng:8080"
+      CRAWL4AI_URL: "http://local-web-crawl4ai:11235"
+      LOCAL_WEB_MCP_TRANSPORT: "streamable-http"
+      LOCAL_WEB_MCP_HOST: "0.0.0.0"
+      LOCAL_WEB_MCP_PORT: "8765"
+    command: .venv/bin/python mcp/local_web_mcp.py
 
 volumes:
   valkey-data:
