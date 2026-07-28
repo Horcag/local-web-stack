@@ -15,7 +15,7 @@ services:
       dockerfile: Dockerfile.byedpi
     container_name: local-web-byedpi
     restart: unless-stopped
-    command: --ip 0.0.0.0 --port 1080 -s 1 -d 1 -r 1
+    command: --ip 0.0.0.0 --port 1080 --auto=torst -s 1+s
 
   searxng:
     image: searxng/searxng:latest
@@ -25,9 +25,13 @@ services:
       - redis
       - byedpi
     ports:
-      - "127.0.0.1:8088:8080"
+      # 8088 sits inside a WinNAT dynamic exclusion range (8046-8145) on this
+      # host, so Docker cannot bind it. Revert to 8088 once the port is
+      # permanently reserved: netsh int ipv4 add excludedportrange
+      # protocol=tcp startport=8088 numberofports=1 store=persistent
+      - "127.0.0.1:8188:8080"
     environment:
-      SEARXNG_BASE_URL: "http://127.0.0.1:8088/"
+      SEARXNG_BASE_URL: "http://127.0.0.1:8188/"
       UWSGI_WORKERS: "4"
       UWSGI_THREADS: "4"
     volumes:
@@ -36,6 +40,9 @@ services:
   crawl4ai:
     build: .
     container_name: local-web-crawl4ai
+    # tini as PID 1: uvicorn does not reap orphaned Chrome children, and the
+    # zombies pile up until the container runs out of PID slots.
+    init: true
     restart: unless-stopped
     depends_on:
       - byedpi
@@ -49,13 +56,29 @@ services:
       CRAWL4AI_SERIALIZE_REQUESTS: "true"
       CRAWL4AI_PAGE_TIMEOUT_MS: "60000"
       CRAWL4AI_WAIT_UNTIL: "domcontentloaded"
-      CRAWL4AI_ACCEPT_LANGUAGE: "en-US,en;q=0.9,ru;q=0.8"
+      # crawl4ai's overlay heuristic strips any element it reads as a modal.
+      # On some layouts (tomshardware.com) that is the article container
+      # itself, and the crawl returns an empty body with a valid title, which
+      # looks exactly like a bot block. Consent-popup removal stays on; it
+      # targets banners specifically instead of guessing.
+      CRAWL4AI_REMOVE_OVERLAYS: "false"
+      # Stealth profile follows Patchright's documented best practice:
+      # real Chrome, persistent context, headed (under Xvfb), no viewport
+      # override, and no fingerprint injection of any kind.
       CRAWL4AI_BROWSER_TYPE: "undetected"
+      CRAWL4AI_CHROME_CHANNEL: "chrome"
+      CRAWL4AI_HEADLESS: "false"
+      CRAWL4AI_NO_VIEWPORT: "true"
       CRAWL4AI_ENABLE_STEALTH: "true"
-      CRAWL4AI_USER_AGENT_MODE: "random"
-      CRAWL4AI_MAGIC: "true"
-      CRAWL4AI_SIMULATE_USER: "true"
-      CRAWL4AI_OVERRIDE_NAVIGATOR: "true"
+      # Empty/false on purpose: each of these injects a fingerprint that
+      # contradicts the real Chrome profile. crawl4ai routes magic and
+      # simulate_user through the same add_init_script(navigator_overrider)
+      # that Patchright explicitly warns against.
+      CRAWL4AI_ACCEPT_LANGUAGE: ""
+      CRAWL4AI_USER_AGENT_MODE: ""
+      CRAWL4AI_MAGIC: "false"
+      CRAWL4AI_SIMULATE_USER: "false"
+      CRAWL4AI_OVERRIDE_NAVIGATOR: "false"
       CRAWL4AI_DELAY_BEFORE_RETURN_HTML: "2.5"
       CRAWL4AI_MEAN_DELAY: "1.0"
       CRAWL4AI_MAX_DELAY_RANGE: "1.5"
