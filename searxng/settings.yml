@@ -55,44 +55,42 @@ ui:
   static_use_hash: true
 
 outgoing:
-  request_timeout: 10.0
-  max_request_timeout: 15.0
-  pool_connections: 25
-  pool_maxsize: 8
+  request_timeout: 4.5
+  max_request_timeout: 7.0
+  pool_connections: 50
+  pool_maxsize: 16
   proxies:
     all://:
       - socks5h://byedpi:1080
 
 engines:
-  # Curated general-search pool. The MCP wrapper also passes this list
-  # explicitly for normal web_search calls so one query does not fan out across
-  # every default SearXNG engine.
+  # Curated general-search pool. Lower timeouts prevent any single engine from blocking searches.
   - name: bing
     disabled: false
     categories: [general, web]
-    timeout: 10.0
+    timeout: 3.0
 
   - name: brave
     engine: brave
     disabled: false
     categories: [general, web]
-    timeout: 10.0
+    timeout: 3.0
 
   - name: google
     categories: [general, web]
-    timeout: 10.0
+    timeout: 3.0
 
   - name: mojeek
     disabled: false
     categories: [general, web]
-    timeout: 10.0
+    timeout: 3.0
 
   - name: presearch
     disabled: true
     categories: [general, web]
-    timeout: 10.0
+    timeout: 3.0
 
   - name: yandex
     disabled: false
     categories: [general, web]
-    timeout: 10.0
+    timeout: 3.0
