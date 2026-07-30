@@ -25,13 +25,17 @@ services:
       - redis
       - byedpi
     ports:
-      # 8088 sits inside a WinNAT dynamic exclusion range (8046-8145) on this
-      # host, so Docker cannot bind it. Revert to 8088 once the port is
-      # permanently reserved: netsh int ipv4 add excludedportrange
-      # protocol=tcp startport=8088 numberofports=1 store=persistent
-      - "127.0.0.1:8188:8080"
+      # On Windows hosts WinNAT re-rolls its dynamic TCP exclusion ranges at
+      # boot and can swallow this port, after which Docker fails to bind with
+      # "socket ... forbidden by its access permissions". Reserve it once from
+      # an elevated shell to make it stick:
+      #   netsh int ipv4 add excludedportrange protocol=tcp \
+      #     startport=8088 numberofports=1 store=persistent
+      # If the port is already inside a live range, netsh refuses until WinNAT
+      # releases it: net stop winnat, add the exclusion, net start winnat.
+      - "127.0.0.1:8088:8080"
     environment:
-      SEARXNG_BASE_URL: "http://127.0.0.1:8188/"
+      SEARXNG_BASE_URL: "http://127.0.0.1:8088/"
       UWSGI_WORKERS: "4"
       UWSGI_THREADS: "4"
     volumes:
