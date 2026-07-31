@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any
 
@@ -20,9 +21,12 @@ SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://127.0.0.1:8088").rstrip("/")
 SEARXNG_CLIENT_IP = "127.0.0.1"
 CRAWL4AI_URL = os.environ.get("CRAWL4AI_URL", "http://127.0.0.1:11235").rstrip("/")
 CRAWL4AI_API_TOKEN = os.environ.get("CRAWL4AI_API_TOKEN", "").strip()
+# Only engines that were measured to answer the actual query from this network.
+# bing/google/brave are kept loadable in settings.yml but out of the pool, see
+# the comments there.
 DEFAULT_SEARCH_ENGINES = os.environ.get(
     "LOCAL_WEB_SEARCH_ENGINES",
-    "bing,brave,google,mojeek,yandex",
+    "mojeek,mwmbl,yandex",
 ).strip()
 
 
@@ -46,6 +50,9 @@ MCP_PATH = os.environ.get("LOCAL_WEB_MCP_PATH", "/mcp").strip() or "/mcp"
 SEARCH_CACHE_TTL_SECONDS = _env_int("LOCAL_WEB_SEARCH_CACHE_TTL_SECONDS", 900)
 SEARCH_TIMEOUT_SECONDS = _env_int("LOCAL_WEB_SEARCH_TIMEOUT_SECONDS", 35)
 READ_TIMEOUT_SECONDS = _env_int("LOCAL_WEB_READ_TIMEOUT_SECONDS", 90)
+# Smallest batch an engine has to return before a zero-overlap batch counts as
+# noise rather than as a thin but legitimate answer.
+OFF_TOPIC_MIN_RESULTS = _env_int("LOCAL_WEB_OFF_TOPIC_MIN_RESULTS", 3)
 
 _SEARCH_CACHE: dict[tuple[tuple[str, str], ...], tuple[float, dict[str, Any]]] = {}
 
@@ -92,6 +99,48 @@ def _set_search_cache(params: dict[str, str], payload: dict[str, Any]) -> None:
     _SEARCH_CACHE[_cache_key(params)] = (time.monotonic(), payload)
 
 
+_TOKEN_RE = re.compile(r"\w{4,}", re.UNICODE)
+
+
+def _matches_query(tokens: set[str], item: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(item.get(key) or "") for key in ("title", "url", "content")
+    ).lower()
+    return any(token in haystack for token in tokens)
+
+
+def _drop_off_topic_engines(
+    query: str, items: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Drop engines whose entire batch shares no token with the query.
+
+    An engine that is served an anti-scraping placeholder answers with a
+    well-formed page of results for something else entirely - measured on bing,
+    which replies to the first query term only. Nothing downstream can tell
+    those from real hits, so they have to be cut here. One odd result is normal
+    (translated pages, acronym expansions); a whole batch with zero overlap is
+    not, hence the per-engine granularity and the batch-size floor.
+    """
+    tokens = set(_TOKEN_RE.findall(query.lower()))
+    if not tokens:
+        return items, []
+
+    by_engine: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        by_engine.setdefault(str(item.get("engine") or ""), []).append(item)
+
+    dropped = {
+        engine
+        for engine, batch in by_engine.items()
+        if len(batch) >= OFF_TOPIC_MIN_RESULTS
+        and not any(_matches_query(tokens, item) for item in batch)
+    }
+    if not dropped:
+        return items, []
+    kept = [item for item in items if str(item.get("engine") or "") not in dropped]
+    return kept, sorted(dropped)
+
+
 @mcp.tool()
 async def web_search(
     query: str,
@@ -101,13 +150,15 @@ async def web_search(
     time_range: str = "",
     engines: str = "",
 ) -> dict[str, Any]:
-    """Search the web through the local SearXNG instance and return compact JSON results."""
+    """Search the web through the local SearXNG instance and return compact JSON results.
+
+    ``category`` only applies when no engines are selected: SearXNG unions the
+    ``categories`` and ``engines`` parameters instead of intersecting them
+    (searx/webadapter.py, parse_generic), so sending both expands the category
+    back into its full engine pool and silently annuls the engine filter.
+    """
     max_results = max(1, min(max_results, 20))
-    params: dict[str, str] = {
-        "q": query,
-        "format": "json",
-        "categories": category,
-    }
+    params: dict[str, str] = {"q": query, "format": "json"}
     if language and language != "auto":
         params["language"] = language
     if time_range:
@@ -117,6 +168,8 @@ async def web_search(
         selected_engines = DEFAULT_SEARCH_ENGINES
     if selected_engines:
         params["engines"] = selected_engines
+    else:
+        params["categories"] = category
 
     cached_payload = _get_search_cache(params)
     if cached_payload is not None:
@@ -132,8 +185,14 @@ async def web_search(
             payload = response.json()
         _set_search_cache(params, payload)
 
+    # Filter before slicing, so a noisy engine cannot push real hits out of the
+    # window, and after the cache, so the cache keeps the raw upstream payload.
+    on_topic, dropped_engines = _drop_off_topic_engines(
+        query, payload.get("results", [])
+    )
+
     results = []
-    for item in payload.get("results", [])[:max_results]:
+    for item in on_topic[:max_results]:
         results.append(
             {
                 "title": item.get("title"),
@@ -150,7 +209,10 @@ async def web_search(
         "query": query,
         "source": "searxng",
         "searxng_url": SEARXNG_URL,
-        "engines": selected_engines or None,
+        "engines": sorted({str(item["engine"]) for item in results if item["engine"]})
+        or None,
+        "requested_engines": selected_engines or None,
+        "dropped_engines": dropped_engines or None,
         "count": len(results),
         "results": results,
     }

@@ -3,8 +3,6 @@ use_default_settings:
     remove:
       # These engines produced almost all local noise: CAPTCHA, rate limits, and
       # slow timeout reports under agent-style query volume.
-      - duckduckgo
-      - duckduckgo web
       - duckduckgo images
       - duckduckgo videos
       - duckduckgo news
@@ -55,8 +53,10 @@ ui:
   static_use_hash: true
 
 outgoing:
-  request_timeout: 4.5
-  max_request_timeout: 7.0
+  # 3.0s per engine was not a safety margin but a throughput cap: mojeek
+  # returned ~2.5 results per query at 3.0s against a full 10 at 10s.
+  request_timeout: 8.0
+  max_request_timeout: 12.0
   pool_connections: 50
   pool_maxsize: 16
   proxies:
@@ -64,33 +64,66 @@ outgoing:
       - socks5h://byedpi:1080
 
 engines:
-  # Curated general-search pool. Lower timeouts prevent any single engine from blocking searches.
+  # Curated general-search pool. Only engines measured to answer the actual
+  # query from this network are enabled; the rest stay loaded but out of the
+  # default pool, so `engines=<name>` can still reach them for re-measurement.
+  #
+  # bing: serves an anti-scraping placeholder SERP to non-browser clients -
+  # a well-formed page whose organic block answers the FIRST QUERY TERM only.
+  # Measured over 8 technical queries: 75% of results contain some query token,
+  # but only 12% contain any token past the first. Reproduced without byedpi,
+  # on single sequential requests, across five header profiles; the same URL
+  # through crawl4ai's real Chrome from the same egress IP returns correct
+  # results, so this is client-signature based and nothing in this file fixes
+  # it. duckduckgo below rides the same Bing index without the anti-bot.
   - name: bing
-    disabled: false
+    disabled: true
     categories: [general, web]
-    timeout: 3.0
+    timeout: 6.0
 
+  # brave: replies 429 with SearxEngineTooManyRequestsException
+  # (suspended_time=180) on essentially every query.
   - name: brave
     engine: brave
+    disabled: true
+    categories: [general, web]
+    timeout: 6.0
+
+  # google: answers 200 with a ~90KB JS shell (no data-ved, no jscontroller),
+  # so the parser extracts nothing and the engine fails silently - no error, no
+  # unresponsive_engines entry, just a spent slice of the request budget.
+  - name: google
+    disabled: true
+    categories: [general, web]
+    timeout: 6.0
+
+  # duckduckgo: rides the Bing index without Bing's anti-bot, and answers the
+  # full query correctly when it answers at all - but it hard-CAPTCHAs under
+  # agent-rate load. Measured: 20 results over 3 spaced queries on a cold
+  # engine, then 0 over 8 consecutive queries, and still 0 with 20s spacing.
+  - name: duckduckgo
+    disabled: true
+    categories: [general, web]
+    timeout: 6.0
+
+  # mwmbl: small independent index, so it contributes few results, but they are
+  # on-topic and it is the only engine here not derived from Bing or Yandex.
+  - name: mwmbl
     disabled: false
     categories: [general, web]
-    timeout: 3.0
-
-  - name: google
-    categories: [general, web]
-    timeout: 3.0
+    timeout: 6.0
 
   - name: mojeek
     disabled: false
     categories: [general, web]
-    timeout: 3.0
+    timeout: 6.0
 
   - name: presearch
     disabled: true
     categories: [general, web]
-    timeout: 3.0
+    timeout: 6.0
 
   - name: yandex
     disabled: false
     categories: [general, web]
-    timeout: 3.0
+    timeout: 6.0

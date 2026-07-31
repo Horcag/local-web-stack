@@ -33,6 +33,8 @@ class FakeResponse:
 class FakeAsyncClient:
     calls: list[tuple[str, str]] = []
     get_calls: list[tuple[str, dict[str, str]]] = []
+    get_params: list[dict[str, str]] = []
+    search_results: list[dict[str, str]] = []
 
     def __init__(self, **_kwargs):
         pass
@@ -46,18 +48,16 @@ class FakeAsyncClient:
     async def get(self, url: str, **kwargs) -> FakeResponse:
         self.calls.append(("GET", url))
         self.get_calls.append((url, kwargs.get("headers", {})))
-        return FakeResponse(
+        self.get_params.append(kwargs.get("params", {}))
+        results = self.search_results or [
             {
-                "results": [
-                    {
-                        "title": "Result",
-                        "url": "https://example.test",
-                        "content": "Body",
-                        "engine": "test",
-                    }
-                ]
+                "title": "Result",
+                "url": "https://example.test",
+                "content": "Body",
+                "engine": "test",
             }
-        )
+        ]
+        return FakeResponse({"results": list(results)})
 
     async def post(self, url: str, **_kwargs) -> FakeResponse:
         self.calls.append(("POST", url))
@@ -69,6 +69,8 @@ class LocalWebMcpTests(unittest.TestCase):
         local_web_mcp._SEARCH_CACHE.clear()
         FakeAsyncClient.calls.clear()
         FakeAsyncClient.get_calls.clear()
+        FakeAsyncClient.get_params.clear()
+        FakeAsyncClient.search_results = []
 
     def test_streamable_http_is_stateless_json(self) -> None:
         self.assertTrue(local_web_mcp.mcp.settings.stateless_http)
@@ -111,6 +113,89 @@ class LocalWebMcpTests(unittest.TestCase):
                 {"X-Real-IP": local_web_mcp.SEARXNG_CLIENT_IP},
             ],
         )
+
+    def test_categories_is_never_sent_together_with_engines(self) -> None:
+        # SearXNG unions the two parameters, so sending both expands the
+        # category back into its full pool and annuls the engine filter.
+        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
+            asyncio.run(local_web_mcp.web_search("example", engines="test"))
+            asyncio.run(local_web_mcp.web_search("example"))
+
+        explicit, defaulted = FakeAsyncClient.get_params
+        self.assertEqual(explicit["engines"], "test")
+        self.assertNotIn("categories", explicit)
+        self.assertEqual(defaulted["engines"], local_web_mcp.DEFAULT_SEARCH_ENGINES)
+        self.assertNotIn("categories", defaulted)
+
+    def test_categories_is_sent_when_no_engines_are_selected(self) -> None:
+        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
+            asyncio.run(local_web_mcp.web_search("example", category="news"))
+
+        params = FakeAsyncClient.get_params[0]
+        self.assertEqual(params["categories"], "news")
+        self.assertNotIn("engines", params)
+
+    def test_reported_engines_are_the_ones_that_answered(self) -> None:
+        FakeAsyncClient.search_results = [
+            {
+                "title": "Body",
+                "url": "https://a.test",
+                "content": "",
+                "engine": "yandex",
+            }
+        ]
+        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
+            search = asyncio.run(
+                local_web_mcp.web_search("body", engines="yandex,mojeek")
+            )
+
+        self.assertEqual(search["engines"], ["yandex"])
+        self.assertEqual(search["requested_engines"], "yandex,mojeek")
+
+    def test_engine_answering_a_different_query_is_dropped(self) -> None:
+        # Bing's anti-scraping placeholder: a full batch of well-formed results
+        # that has nothing to do with the query.
+        FakeAsyncClient.search_results = [
+            {
+                "title": f"Nokia {i}",
+                "url": "https://nokia.test",
+                "content": "",
+                "engine": "bing",
+            }
+            for i in range(3)
+        ] + [
+            {
+                "title": "Quantum teleportation",
+                "url": "https://arxiv.test",
+                "content": "",
+                "engine": "yandex",
+            }
+        ]
+        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
+            search = asyncio.run(
+                local_web_mcp.web_search("quantum teleportation experiment")
+            )
+
+        self.assertEqual(search["dropped_engines"], ["bing"])
+        self.assertEqual([item["engine"] for item in search["results"]], ["yandex"])
+
+    def test_a_thin_off_topic_batch_is_kept(self) -> None:
+        # One odd result is normal; only a whole batch with zero overlap is not.
+        FakeAsyncClient.search_results = [
+            {
+                "title": "Nokia",
+                "url": "https://nokia.test",
+                "content": "",
+                "engine": "mojeek",
+            }
+        ]
+        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
+            search = asyncio.run(
+                local_web_mcp.web_search("quantum teleportation experiment")
+            )
+
+        self.assertIsNone(search["dropped_engines"])
+        self.assertEqual(search["count"], 1)
 
 
 if __name__ == "__main__":

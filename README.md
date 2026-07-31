@@ -9,7 +9,7 @@ It combines **SearXNG** for meta-search aggregation, **Crawl4AI** (wrapped in Fa
 ## Key Features
 
 - **Local & Token-Free:** Works entirely on your machine without requiring paid API keys or subscription credits.
-- **Curated Meta-Search:** Pre-configured SearXNG pool running Bing, Google, Mojeek, and Presearch. Evasion-heavy engines (like DuckDuckGo) are disabled to prevent CAPTCHAs and timeouts under high agent query volume.
+- **Curated Meta-Search:** Pre-configured SearXNG pool running Yandex, Mojeek, and mwmbl — the engines measured to answer the actual query from this network (94% of returned results carry a query token past the first, over 10 technical queries). Bing, Google, Brave, and DuckDuckGo stay loaded but out of the default pool: Bing serves non-browser clients a placeholder SERP answering the first query term only, Google returns an empty JS shell, Brave is rate-limited, DuckDuckGo hard-CAPTCHAs under agent-rate load. All four remain reachable via `engines=<name>` for re-measurement. `web_search` additionally drops any engine whose whole batch shares no token with the query.
 - **Stealth & Evasion Crawling:** Crawl4AI wrapped with `UndetectedAdapter` and `playwright-stealth` to bypass Cloudflare WAF, Turnstile, and client-side automation detection.
 - **Pacing & Serialization:** Automatic request serialization and domain-specific delays (`CRAWL4AI_DOMAIN_DELAY_SECONDS`) to prevent target rate-limiting.
 - **LLM-Friendly Output:** Extracts web pages and returns structured, clean Markdown optimized for LLM context windows.
@@ -77,8 +77,8 @@ Shut down all containers and stop the HTTP MCP background process:
 Once connected, the `local-web` MCP server provides the following tools to the agent:
 
 1. **`web_search`**
-   - **Arguments:** `query` (str), `max_results` (int, default 8), `category` (str, default "general")
-   - **Description:** Performs a local SearXNG aggregated search and returns a compact JSON with search result titles, snippets, and URLs.
+   - **Arguments:** `query` (str), `max_results` (int, default 8), `category` (str, default "general"), `language` (str, default "auto"), `time_range` (str), `engines` (comma-separated str)
+   - **Description:** Performs a local SearXNG aggregated search and returns a compact JSON with search result titles, snippets, and URLs. `engines` and `category` are mutually exclusive — SearXNG unions the two parameters rather than intersecting them, so `category` is only sent when no engines are selected. The response reports the engines that actually produced results in `engines`, what was asked for in `requested_engines`, and anything cut by the relevance guard in `dropped_engines`.
 2. **`read_url`**
    - **Arguments:** `url` (str), `cache_mode` (str, default "enabled")
    - **Description:** Crawls a URL using Crawl4AI and returns structured, clean Markdown.
