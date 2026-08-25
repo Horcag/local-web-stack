@@ -18,7 +18,7 @@ services:
     command: --ip 0.0.0.0 --port 1080 --auto=torst -s 1+s
 
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.8.4-c63835bd2
     container_name: local-web-searxng
     restart: unless-stopped
     depends_on:
