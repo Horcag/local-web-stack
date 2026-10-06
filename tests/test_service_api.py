@@ -61,6 +61,7 @@ def test_dashboard_assets_and_csrf_boundary():
         )
         assert denied.status_code == 403
         assert client.get("/health").json()["status"] == "healthy"
+        assert "content-security-policy" not in client.get("/docs").headers
 
 
 def test_config_helpers_and_proxy(tmp_path, monkeypatch):

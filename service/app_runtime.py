@@ -38,7 +38,9 @@ def attach_research(app: FastAPI) -> None:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if response.headers.get("content-type", "").startswith("text/html"):
+        if request.url.path in {"/", "/index.html"} and response.headers.get(
+            "content-type", ""
+        ).startswith("text/html"):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
