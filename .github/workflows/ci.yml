@@ -1,0 +1,70 @@
+name: Quality
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.11.13'
+      - run: uv sync --frozen --group dev
+      - name: Offline quality gate
+        env:
+          UV_OFFLINE: '1'
+        run: uv run --frozen python scripts/quality/check.py
+      - name: Retain test case receipt and coverage
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: quality-python-${{ matrix.python }}
+          path: work/quality/*.xml
+          retention-days: 7
+          if-no-files-found: warn
+  browser-ui-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.11.13'
+      - run: uv sync --frozen --group dev
+      - run: uv run --frozen playwright install --with-deps chromium
+      - name: Exercise dashboard in desktop and mobile browser
+        env:
+          CRAWL4_AI_BASE_DIRECTORY: ${{ runner.temp }}/local-web-browser-smoke
+        run: >-
+          uv run --frozen python scripts/quality/browser_smoke.py
+          --screenshot "${{ runner.temp }}/local-web-browser-screenshots/desktop.png"
+      - name: Retain browser acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-ui-smoke
+          path: ${{ runner.temp }}/local-web-browser-screenshots/*.png
+          retention-days: 7
+          if-no-files-found: warn

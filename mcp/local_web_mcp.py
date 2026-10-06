@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 import re
 import time
 from typing import Any
@@ -40,10 +42,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-MCP_TRANSPORT = os.environ.get(
-    "LOCAL_WEB_MCP_TRANSPORT",
-    os.environ.get("MCP_TRANSPORT", "stdio"),
-).strip().lower()
+MCP_TRANSPORT = (
+    os.environ.get(
+        "LOCAL_WEB_MCP_TRANSPORT",
+        os.environ.get("MCP_TRANSPORT", "stdio"),
+    )
+    .strip()
+    .lower()
+)
 MCP_HOST = os.environ.get("LOCAL_WEB_MCP_HOST", "127.0.0.1").strip() or "127.0.0.1"
 MCP_PORT = _env_int("LOCAL_WEB_MCP_PORT", 8765)
 MCP_PATH = os.environ.get("LOCAL_WEB_MCP_PATH", "/mcp").strip() or "/mcp"
@@ -103,9 +109,7 @@ _TOKEN_RE = re.compile(r"\w{4,}", re.UNICODE)
 
 
 def _matches_query(tokens: set[str], item: dict[str, Any]) -> bool:
-    haystack = " ".join(
-        str(item.get(key) or "") for key in ("title", "url", "content")
-    ).lower()
+    haystack = " ".join(str(item.get(key) or "") for key in ("title", "url", "content")).lower()
     return any(token in haystack for token in tokens)
 
 
@@ -149,6 +153,7 @@ async def web_search(
     language: str = "auto",
     time_range: str = "",
     engines: str = "",
+    page: int = 1,
 ) -> dict[str, Any]:
     """Search the web through the local SearXNG instance and return compact JSON results.
 
@@ -157,8 +162,10 @@ async def web_search(
     (searx/webadapter.py, parse_generic), so sending both expands the category
     back into its full engine pool and silently annuls the engine filter.
     """
+    if not 1 <= page <= 100:
+        raise ValueError("page must be between 1 and 100")
     max_results = max(1, min(max_results, 20))
-    params: dict[str, str] = {"q": query, "format": "json"}
+    params: dict[str, str] = {"q": query, "format": "json", "pageno": str(page)}
     if language and language != "auto":
         params["language"] = language
     if time_range:
@@ -187,9 +194,7 @@ async def web_search(
 
     # Filter before slicing, so a noisy engine cannot push real hits out of the
     # window, and after the cache, so the cache keeps the raw upstream payload.
-    on_topic, dropped_engines = _drop_off_topic_engines(
-        query, payload.get("results", [])
-    )
+    on_topic, dropped_engines = _drop_off_topic_engines(query, payload.get("results", []))
 
     results = []
     for item in on_topic[:max_results]:
@@ -207,10 +212,11 @@ async def web_search(
 
     return {
         "query": query,
+        "page": page,
+        "unresponsive_engines": payload.get("unresponsive_engines", []),
         "source": "searxng",
         "searxng_url": SEARXNG_URL,
-        "engines": sorted({str(item["engine"]) for item in results if item["engine"]})
-        or None,
+        "engines": sorted({str(item["engine"]) for item in results if item["engine"]}) or None,
         "requested_engines": selected_engines or None,
         "dropped_engines": dropped_engines or None,
         "count": len(results),
@@ -232,13 +238,20 @@ async def read_url(url: str, cache_mode: str = "enabled") -> dict[str, Any]:
         response.raise_for_status()
         payload = response.json()
 
-    markdown = payload.get("markdown") or payload.get("result") or payload
+    markdown = payload.get("markdown")
+    if markdown is None:
+        markdown = payload.get("result", "")
+    if not isinstance(markdown, str):
+        markdown = ""
     return {
         "url": url,
         "source": "crawl4ai",
         "crawl4ai_url": CRAWL4AI_URL,
         "cache_mode": cache_mode,
         "markdown": markdown,
+        "assessment": payload.get("assessment"),
+        "next_action": payload.get("next_action"),
+        "title": payload.get("title"),
     }
 
 
@@ -264,11 +277,25 @@ async def local_web_health() -> dict[str, Any]:
 
         try:
             response = await client.get(f"{CRAWL4AI_URL}/health", headers=_crawl4ai_headers())
-            status["crawl4ai"] = response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text
+            status["crawl4ai"] = (
+                response.json()
+                if response.headers.get("content-type", "").startswith("application/json")
+                else response.text
+            )
         except Exception as exc:  # noqa: BLE001
             status["crawl4ai"] = repr(exc)
 
     return status
+
+
+def _register_research_tools() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from mcp_tools import register_research_tools
+
+    register_research_tools(mcp, CRAWL4AI_URL, _crawl4ai_headers)
+
+
+_register_research_tools()
 
 
 if __name__ == "__main__":

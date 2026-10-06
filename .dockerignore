@@ -1,0 +1,14 @@
+# Only runtime build inputs enter either image context.
+**
+!Dockerfile
+!Dockerfile.byedpi
+!pyproject.toml
+!uv.lock
+!service/
+!service/**
+!mcp/
+!mcp/**
+# Runtime source directories can contain ignored interpreter caches locally.
+**/__pycache__/
+**/*.pyc
+**/*.pyo

@@ -15,14 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install uv for fast dependency synchronization
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.13 /uv /uvx /bin/
 
 # Copy python project configuration
 COPY pyproject.toml uv.lock ./
 
 # Create a virtual environment and install dependencies using uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv && uv sync --frozen
+    uv venv && uv sync --frozen --no-dev
 
 # Patch crawl4ai's Pydantic model validation bug for empty markdown results
 RUN .venv/bin/python -c "import pathlib; p = pathlib.Path('.venv/lib/python3.12/site-packages/crawl4ai/models.py'); content = p.read_text(encoding='utf-8'); content = content.replace('raw_markdown: str', 'raw_markdown: str = \"\"').replace('markdown_with_citations: str', 'markdown_with_citations: str = \"\"').replace('references_markdown: str', 'references_markdown: str = \"\"'); p.write_text(content, encoding='utf-8')"

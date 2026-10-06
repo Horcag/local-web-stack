@@ -41,7 +41,7 @@ search:
 server:
   bind_address: "0.0.0.0"
   port: 8080
-  secret_key: "DgGx1bBd3tOoYnSV94sjclmTHwrhqZ08IMLzPvR67pfiUykNCE5uFXea2KWQAJ"
+  secret_key: "local-development-only-change-before-deployment"
   limiter: false
   image_proxy: true
   method: "GET"
