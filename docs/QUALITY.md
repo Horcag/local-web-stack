@@ -5,7 +5,7 @@ Install uv 0.11.13 and Python 3.12 or 3.13. Run `make setup`, `make hooks`, then
 `uv run --frozen pre-commit install --hook-type pre-commit --hook-type pre-push`,
 and `uv run --frozen python scripts/quality/check.py`.
 
-The same command runs before commit, before push, and in CI. It checks lock freshness
+The same command runs before commit, before push, and in CI. Docker Compose CLI is required; configuration validation runs offline without a daemon or service startup. The route guard rejects host loopback/published-port addresses for cross-service traffic. It checks lock freshness
 with `uv lock --check --offline`; frozen sync alone does not verify freshness.
 Ruff format and correctness lint cover service, MCP, tests and quality scripts.
 Mypy checks application/MCP and quality scripts, including untyped function bodies;

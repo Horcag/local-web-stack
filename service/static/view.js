@@ -51,6 +51,13 @@ export function renderCoverage(coverage, sources) {
     return card;
   }));
   if (coverage) {
+    $('collection-budget').textContent = `Requests ${coverage.requests_used || 0}/${coverage.max_requests || '—'} · Saved characters ${coverage.content_chars || 0}/${coverage.max_content_chars || '—'} · Exact content duplicates ${coverage.content_duplicates || 0}`;
+    const failures = (coverage.searches || []).filter(item => item.data?.error)
+      .map(item => `${item.query} / page ${item.page}: ${item.data.error}`);
+    const engines = (coverage.engine_errors || []).map(item => Array.isArray(item) ? item.join(': ') : String(item));
+    const gaps = [...failures, ...engines];
+    $('search-gaps').hidden = !gaps.length;
+    $('search-gaps').textContent = gaps.length ? `Search gaps (${gaps.length}): ${gaps.slice(0, 5).join(' · ')}. Retry discovery or use alternative queries; coverage remains incomplete.` : '';
     $('coverage').setAttribute('title', `Requests: ${coverage.requests_used || 0}/${coverage.max_requests || '—'} · Content characters: ${coverage.content_chars || 0}/${coverage.max_content_chars || '—'}`);
   }
 }

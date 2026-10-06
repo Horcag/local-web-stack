@@ -20,6 +20,7 @@ def main() -> None:
     os.chdir(ROOT)
     run("uv", "lock", "--check", "--offline")
     run(sys.executable, "scripts/quality/policy.py")
+    run(sys.executable, "scripts/quality/compose_routes.py")
     run(
         sys.executable,
         "-m",
