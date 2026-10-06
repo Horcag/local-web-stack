@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
-    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform != 'win32'",
     "python_full_version < '3.14' and sys_platform == 'win32'",
     "python_full_version < '3.14' and sys_platform != 'win32'",
@@ -653,7 +653,7 @@ wheels = [
 
 [[package]]
 name = "crawl4ai"
-version = "0.9.2"
+version = "0.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -690,9 +690,9 @@ dependencies = [
     { name = "unclecode-litellm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/7f/b32541be7b0a4d69574054a07d05c3c36aa1a935914a661b26099db34d4a/crawl4ai-0.9.2.tar.gz", hash = "sha256:58dbfa05a82c1cfa667a20383a1d0f7a42187304da5e4d0661a6f59b0ed6a406", size = 577156, upload-time = "2026-07-15T08:27:24.192Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/df/39bf85e67faf31b6c1587d849ffb74b4cfb078c6f646e158a18768b15cdb/crawl4ai-0.9.4.tar.gz", hash = "sha256:fd118861b1acff90ac0db4ceae4d529691fd1a0a0d4417c710de3c7d2114ae88", size = 605884, upload-time = "2026-09-23T12:14:50.938Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/fe/84960a1747d64d12b4a0d6d9954ee919e44a92dd62e64152552c4e5bf437/crawl4ai-0.9.2-py3-none-any.whl", hash = "sha256:4efb2d0688aa3d66b48721a9031f7257bd2acb52b78d0a89d072741ac685f3f8", size = 480585, upload-time = "2026-07-15T08:27:22.834Z" },
+    { url = "https://files.pythonhosted.org/packages/44/35/0bd5efdf383623983423a387a368aff85ddbe50079159957b1978e4db6ea/crawl4ai-0.9.4-py3-none-any.whl", hash = "sha256:46779c8a93b35c7c5f9be9642ddef5e7b515e36b094639bb8e1e418bf0266179", size = 497091, upload-time = "2026-09-23T12:14:49.422Z" },
 ]
 
 [[package]]
@@ -1480,7 +1480,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "crawl4ai", specifier = ">=0.9.2" },
+    { name = "crawl4ai", specifier = ">=0.9.4" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", specifier = ">=1.0.0" },
