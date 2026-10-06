@@ -1,15 +1,15 @@
 ---
 id: 1
 title: 'Research platform: search, durable sources, browser fallback and dashboard'
-status: in-progress
+status: done
 priority: critical
 created: 2026-10-06T14:04:58.712119792+04:00
-updated: 2026-10-06T14:39:29.049260119+04:00
+updated: 2026-10-06T14:55:53.23274408+04:00
+started: 2026-10-06T14:55:53.204929744+04:00
+completed: 2026-10-06T14:55:53.204929744+04:00
 tags:
     - research
     - platform
-claimed_by: dale-maple
-claimed_at: 2026-10-06T14:39:29.049380523+04:00
 class: standard
 ---
 
@@ -23,3 +23,6 @@ PR #1 merged after Quality Python 3.12/3.13, real browser UI and container smoke
 
 [[2026-10-06]] Tue 14:39
 Live MCP lists15 tools and dashboard/image smoke passes. Actual research discovery exposed missing SEARXNG_URL in crawl4ai Compose environment; fixing service route before accepting end-to-end collection.
+
+[[2026-10-06]] Tue 14:55
+Delivered main6398461. Final deployed18 runtime files match source SHA256 manifest a5ce81ca1a51d6a06e645bc722f05be181f87903dc22f03252b612dd7f1581a3. Live15tools, dashboard and docs passed; two-page research discovered4 sources/read2 docs43689chars. Temporary run and4sources removed. CDP remains optional/unconfigured; external browser import path works.

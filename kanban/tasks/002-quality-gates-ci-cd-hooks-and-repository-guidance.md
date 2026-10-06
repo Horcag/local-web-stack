@@ -1,15 +1,15 @@
 ---
 id: 2
 title: Quality gates, CI/CD, hooks and repository guidance
-status: review
+status: done
 priority: high
 created: 2026-10-06T14:04:58.743703979+04:00
-updated: 2026-10-06T14:53:36.498075688+04:00
+updated: 2026-10-06T14:55:53.061987578+04:00
+started: 2026-10-06T14:55:26.433147932+04:00
+completed: 2026-10-06T14:55:26.433147932+04:00
 tags:
     - quality
     - ci
-claimed_by: dale-maple
-claimed_at: 2026-10-06T14:53:36.498165914+04:00
 class: standard
 ---
 

@@ -24,3 +24,7 @@ htmlcov/
 # Operator backup files are local state, never build or source inputs.
 *.bak
 *.bak-*
+
+# Kanban task/config files are tracked; CLI locks and event logs are runtime state.
+kanban/.lock
+kanban/activity.jsonl
