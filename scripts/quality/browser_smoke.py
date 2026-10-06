@@ -306,6 +306,8 @@ def main():
     base_directory = os.environ.get("CRAWL4_AI_BASE_DIRECTORY") or os.environ.get(
         "AGENT_STORAGE_SCRATCH"
     )
+    if base_directory:
+        Path(base_directory).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="local-web-ui-smoke-", dir=base_directory) as directory:
         scratch = Path(directory)
         runtime = BrowserRuntime(endpoint="")
