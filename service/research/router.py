@@ -85,6 +85,13 @@ def create_router(browser_reader=None, db_path=None):
             json.dumps(data["coverage"]["counts"]),
             "",
         ]
+        gaps = [
+            search
+            for search in data["coverage"]["searches"]
+            if search["data"].get("error") or search["data"].get("engine_errors")
+        ]
+        if gaps:
+            lines.extend(["## Search gaps", "", json.dumps(gaps, ensure_ascii=False), ""])
         for item in data["sources"]:
             lines.extend(
                 [
