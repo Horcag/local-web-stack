@@ -145,9 +145,7 @@ class LocalWebMcpTests(unittest.TestCase):
             }
         ]
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(
-                local_web_mcp.web_search("body", engines="yandex,mojeek")
-            )
+            search = asyncio.run(local_web_mcp.web_search("body", engines="yandex,mojeek"))
 
         self.assertEqual(search["engines"], ["yandex"])
         self.assertEqual(search["requested_engines"], "yandex,mojeek")
@@ -172,9 +170,7 @@ class LocalWebMcpTests(unittest.TestCase):
             }
         ]
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(
-                local_web_mcp.web_search("quantum teleportation experiment")
-            )
+            search = asyncio.run(local_web_mcp.web_search("quantum teleportation experiment"))
 
         self.assertEqual(search["dropped_engines"], ["bing"])
         self.assertEqual([item["engine"] for item in search["results"]], ["yandex"])
@@ -190,9 +186,7 @@ class LocalWebMcpTests(unittest.TestCase):
             }
         ]
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(
-                local_web_mcp.web_search("quantum teleportation experiment")
-            )
+            search = asyncio.run(local_web_mcp.web_search("quantum teleportation experiment"))
 
         self.assertIsNone(search["dropped_engines"])
         self.assertEqual(search["count"], 1)

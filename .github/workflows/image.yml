@@ -1,0 +1,28 @@
+name: Container image
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths: ['Dockerfile', 'pyproject.toml', 'uv.lock', 'service/**', 'mcp/**', 'scripts/quality/image_smoke.py', '.github/workflows/image*.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  pull-request-smoke:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/image-build.yml
+    with:
+      publish: false
+  publication:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/image-build.yml
+    with:
+      publish: true

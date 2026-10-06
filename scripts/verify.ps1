@@ -22,4 +22,10 @@ if ($preview.Length -gt 160) {
 }
 Write-Host "Crawl4AI markdown OK: $preview"
 
+Write-Host "Checking research API..."
+$runs = Invoke-RestMethod -Uri "$crawl4ai/research/runs" -TimeoutSec 10
+$browser = Invoke-RestMethod -Uri "$crawl4ai/browser/status" -TimeoutSec 10
+$dashboard = Invoke-WebRequest -Uri "$crawl4ai/" -TimeoutSec 10
+if ($dashboard.StatusCode -ne 200) { throw "Dashboard unavailable" }
+Write-Host "Research API and dashboard OK. Browser configured: $($browser.configured)"
 Write-Host "Local web stack verified."

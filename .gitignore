@@ -14,3 +14,13 @@ work/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Development evidence and static-analysis caches
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Operator backup files are local state, never build or source inputs.
+*.bak
+*.bak-*

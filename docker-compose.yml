@@ -53,6 +53,8 @@ services:
     ports:
       - "127.0.0.1:11235:11235"
     environment:
+      LOCAL_WEB_RESEARCH_DB: "/app/work/research.sqlite3"
+      LOCAL_WEB_BROWSER_CDP_URL: "${LOCAL_WEB_BROWSER_CDP_URL:-}"
       CRAWL4AI_DEFAULT_PROXY: "socks5://byedpi:1080"
       CRAWL4AI_CACHE_MODE: "enabled"
       CRAWL4AI_PERSISTENT_CONTEXT: "true"
