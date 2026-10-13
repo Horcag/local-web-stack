@@ -104,7 +104,8 @@ class Runner:
 
     async def collect(self, run_id, batch_size):
         completed = []
-        async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
+        # Allow page navigation, bounded CAPTCHA recovery and the browser fallback.
+        async with httpx.AsyncClient(timeout=135, follow_redirects=False) as client:
             for _ in range(batch_size):
                 claimed = self.store.claim(run_id)
                 if not claimed:

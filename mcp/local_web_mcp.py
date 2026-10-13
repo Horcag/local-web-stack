@@ -55,7 +55,7 @@ MCP_PORT = _env_int("LOCAL_WEB_MCP_PORT", 8765)
 MCP_PATH = os.environ.get("LOCAL_WEB_MCP_PATH", "/mcp").strip() or "/mcp"
 SEARCH_CACHE_TTL_SECONDS = _env_int("LOCAL_WEB_SEARCH_CACHE_TTL_SECONDS", 900)
 SEARCH_TIMEOUT_SECONDS = _env_int("LOCAL_WEB_SEARCH_TIMEOUT_SECONDS", 35)
-READ_TIMEOUT_SECONDS = _env_int("LOCAL_WEB_READ_TIMEOUT_SECONDS", 90)
+READ_TIMEOUT_SECONDS = _env_int("LOCAL_WEB_READ_TIMEOUT_SECONDS", 135)
 # Smallest batch an engine has to return before a zero-overlap batch counts as
 # noise rather than as a thin but legitimate answer.
 OFF_TOPIC_MIN_RESULTS = _env_int("LOCAL_WEB_OFF_TOPIC_MIN_RESULTS", 3)

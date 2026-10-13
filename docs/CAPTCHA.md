@@ -82,7 +82,11 @@ The sidecar mounts only the owner-mode-0600 socket, runs under its numeric owner
 
 `read_url` and `/md` use the same configured browser runtime after a blocked or partial crawl, or a failed crawl with no body. This fallback includes lock acquisition in its 30-second deadline and disables CAPTCHA recovery for the additional read. It accepts only the requested scheme, host, port, path and query values, allowing equivalent URL encoding, a trailing slash and server-added query parameters. Acceptance also requires a known 2xx document response, complete content assessed as read, and no CAPTCHA or browser privacy-error page. An unavailable or rejected fallback preserves the original assessment.
 
+Chrome document responses are bound to the main frame's loader identifier and checked around content extraction. Same-document history changes preserve that evidence; a reload or unknown document cannot inherit an earlier status. Navigation waits for the document to commit, so an unfinished DOMContentLoaded event does not hold up already available text. Only task-owned tabs and protocol sessions are observed and cleaned up.
+
 Accepted responses identify `source=browser-fallback` and `method=cdp-visible-text`. The current `captcha`, `status_code` and assessment describe the browser result; `initial_captcha` and `initial_status_code` preserve the crawl outcome. The research collector records this provenance and never repeats a fallback already attempted by `/md`.
+
+MCP reading and research collection allow 135 seconds for the response, covering the default navigation, CAPTCHA and browser-fallback stages. MCP's LOCAL_WEB_READ_TIMEOUT_SECONDS can override its client timeout; a shorter override can expire before recovery finishes.
 
 ## Supported behavior
 - Text-image forms: a visible CAPTCHA-specific image, CAPTCHA input and submit control inside the same form.
