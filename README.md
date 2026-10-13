@@ -66,6 +66,10 @@ Do not expose a debugging endpoint publicly. A configured endpoint does not prov
 The crawler's persistent Docker profile is separate from a user's desktop Chrome profile.
 Patchright/headed Chrome is not a guarantee against CAPTCHA or access restrictions.
 
+Optional [CAPTCHA recovery](docs/CAPTCHA.md) sends cropped text-image or ordered-click challenges
+to one explicitly configured multimodal API. Browser actions stay local, attempts are bounded,
+and successful page recovery is verified before reporting a solve. Unknown puzzles remain blocked.
+
 ## Configuration and data
 
 | Setting | Default / behavior |

@@ -171,7 +171,7 @@ class Runner:
             raw_status if isinstance(raw_status, int) and 100 <= raw_status <= 599 else 200
         )
         result = dict(
-            assess_content(markdown, title, status_code),
+            assess_content(markdown, title, status_code, payload.get("captcha")),
             markdown=markdown,
             title=title,
             method=method,
@@ -200,6 +200,7 @@ class Runner:
                                 browser.get("markdown", ""),
                                 browser.get("title", title),
                                 browser.get("status_code") or 200,
+                                browser.get("captcha"),
                             ),
                             markdown=browser.get("markdown", ""),
                             title=browser.get("title", title),

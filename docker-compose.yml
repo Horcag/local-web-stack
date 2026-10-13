@@ -1,6 +1,33 @@
 name: local-web-stack
 
 services:
+  gateway-relay:
+    image: "${LOCAL_WEB_GATEWAY_RELAY_IMAGE:-local-web-stack-crawl4ai}"
+    profiles: [captcha-gateway]
+    container_name: local-web-gateway-relay
+    user: "${LOCAL_WEB_GATEWAY_RELAY_UID:-1000}:${LOCAL_WEB_GATEWAY_RELAY_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      LOCAL_WEB_GATEWAY_RELAY_BIND_HOST: "${LOCAL_WEB_GATEWAY_RELAY_BIND_HOST:-}"
+      LOCAL_WEB_GATEWAY_RELAY_BIND_PORT: "${LOCAL_WEB_GATEWAY_RELAY_BIND_PORT:-18045}"
+      LOCAL_WEB_GATEWAY_RELAY_TARGET_HOST: "${LOCAL_WEB_GATEWAY_RELAY_TARGET_HOST:-127.0.0.1}"
+      LOCAL_WEB_GATEWAY_RELAY_TARGET_PORT: "${LOCAL_WEB_GATEWAY_RELAY_TARGET_PORT:-8045}"
+      LOCAL_WEB_GATEWAY_RELAY_TARGET_UNIX_PATH: /run/model-gateway.sock
+    volumes:
+      - type: bind
+        source: "${LOCAL_WEB_GATEWAY_RELAY_SOCKET:-/run/local-web/model-gateway.sock}"
+        target: /run/model-gateway.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    command: .venv/bin/python -m service.gateway_relay
+
   redis:
     image: valkey/valkey:8-alpine
     container_name: local-web-valkey
@@ -86,6 +113,11 @@ services:
       CRAWL4AI_MAGIC: "false"
       CRAWL4AI_SIMULATE_USER: "false"
       CRAWL4AI_OVERRIDE_NAVIGATOR: "false"
+      LOCAL_WEB_CAPTCHA_ENABLED: "${LOCAL_WEB_CAPTCHA_ENABLED:-false}"
+      LOCAL_WEB_CAPTCHA_BASE_URL: "${LOCAL_WEB_CAPTCHA_BASE_URL:-}"
+      LOCAL_WEB_CAPTCHA_API_KEY: "${LOCAL_WEB_CAPTCHA_API_KEY:-}"
+      LOCAL_WEB_CAPTCHA_MODEL: "${LOCAL_WEB_CAPTCHA_MODEL:-gemini-3.8-flash-high}"
+      LOCAL_WEB_CAPTCHA_TIMEOUT_SECONDS: "${LOCAL_WEB_CAPTCHA_TIMEOUT_SECONDS:-15}"
       CRAWL4AI_DELAY_BEFORE_RETURN_HTML: "2.5"
       CRAWL4AI_MEAN_DELAY: "1.0"
       CRAWL4AI_MAX_DELAY_RANGE: "1.5"

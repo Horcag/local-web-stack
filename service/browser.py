@@ -11,6 +11,9 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from service.captcha_browser import recover_captcha
+from service.captcha_solver import CaptchaSolver
+
 
 class OpenTab(BaseModel):
     url: str = Field(min_length=1, max_length=4096)
@@ -30,6 +33,7 @@ class BrowserRuntime:
         self._driver: Any = None
         self._browser: Any = None
         self._tabs: dict[str, Any] = {}
+        self._targets: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -75,10 +79,12 @@ class BrowserRuntime:
         page = await contexts[0].new_page()
         tab_id = uuid4().hex
         self._tabs[tab_id] = page
+        self._targets[tab_id] = url
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         except BaseException:
             self._tabs.pop(tab_id, None)
+            self._targets.pop(tab_id, None)
             with suppress(Exception):
                 await page.close()
             raise
@@ -88,11 +94,13 @@ class BrowserRuntime:
         page = self._tabs.get(tab_id)
         if page is None or page.is_closed():
             self._tabs.pop(tab_id, None)
+            self._targets.pop(tab_id, None)
             raise HTTPException(404, "Unknown or closed local-web tab")
         return page
 
     async def _snapshot(self, tab_id: str) -> dict:
         page = self._page(tab_id)
+        captcha = await recover_captcha(page, CaptchaSolver.from_env(), self._targets[tab_id])
         text = await page.locator("body").inner_text(timeout=15000)
         links = await page.locator("a[href]").evaluate_all(
             "els => els.slice(0, 150).map(e => ({href:e.href,text:e.innerText.slice(0,150)}))"
@@ -105,6 +113,8 @@ class BrowserRuntime:
             "truncated": len(text) > 200000,
             "links": links,
             "method": "cdp-visible-text",
+            "captcha": captcha,
+            "status_code": captcha.get("final_status_code"),
         }
 
     async def open(self, url: str) -> dict:
@@ -114,6 +124,7 @@ class BrowserRuntime:
                 return await self._snapshot(tab_id)
             except BaseException:
                 page = self._tabs.pop(tab_id, None)
+                self._targets.pop(tab_id, None)
                 if page is not None:
                     with suppress(Exception):
                         await page.close()
@@ -137,6 +148,7 @@ class BrowserRuntime:
             elif request.action == "navigate":
                 self._validate_url(request.value)
                 await page.goto(request.value, wait_until="domcontentloaded", timeout=45000)
+                self._targets[tab_id] = request.value
             else:
                 await page.mouse.wheel(0, 800)
             return await self._snapshot(tab_id)
@@ -146,6 +158,7 @@ class BrowserRuntime:
             page = self._page(tab_id)
             await page.close()
             self._tabs.pop(tab_id, None)
+            self._targets.pop(tab_id, None)
             return {"closed": tab_id}
 
     async def read(self, url: str) -> dict | None:
@@ -157,6 +170,7 @@ class BrowserRuntime:
                 return await self._snapshot(tab_id)
             finally:
                 page = self._tabs.pop(tab_id, None)
+                self._targets.pop(tab_id, None)
                 if page is not None:
                     with suppress(Exception):
                         await page.close()
@@ -166,6 +180,7 @@ class BrowserRuntime:
             with suppress(Exception):
                 await page.close()
         self._tabs.clear()
+        self._targets.clear()
         # stop the connection/driver; never invoke browser.close() on a borrowed browser.
         if self._driver is not None:
             with suppress(Exception):

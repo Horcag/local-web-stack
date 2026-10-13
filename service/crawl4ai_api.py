@@ -17,6 +17,8 @@ from service.crawl_defaults import (
     _env_float as _env_float,
 )
 from service.crawl_request import CrawlRequest as CrawlRequest
+from service.captcha_solver import CaptchaSolver
+from service.captcha_browser import recover_captcha
 
 app = FastAPI(title="Local Crawl4AI API", version="0.2.0")
 _CRAWL_LOCK = asyncio.Lock()
@@ -155,6 +157,15 @@ async def _wait_for_domain_budget(domain: str, delay_seconds: float) -> None:
     _DOMAIN_LAST_REQUEST[domain] = asyncio.get_running_loop().time()
 
 
+def _markdown_text(result: Any) -> str:
+    markdown = getattr(result, "markdown", None)
+    if markdown is None:
+        return ""
+    if hasattr(markdown, "raw_markdown"):
+        return markdown.raw_markdown or ""
+    return str(markdown)
+
+
 async def _crawl(request: CrawlRequest) -> Any:
     url = str(request.url)
     domain = _domain_for(url)
@@ -175,15 +186,36 @@ async def _crawl(request: CrawlRequest) -> Any:
     else:
         crawler = AsyncWebCrawler(config=browser_config)
 
+    solver = CaptchaSolver.from_env()
+    captcha_receipt: dict[str, Any] = {}
+    if solver.enabled:
+
+        async def captcha_hook(page, **_kwargs):
+            captcha_receipt.update(await recover_captcha(page, solver, url))
+            return page
+
+        crawler.crawler_strategy.set_hook("before_retrieve_html", captcha_hook)
+
     # start()/close() in try/finally instead of "async with": when the browser
     # fails to launch, __aenter__ raises and __aexit__ never runs, leaking the
     # already-spawned Playwright node driver (~140 MB) for the process lifetime.
     try:
         await crawler.start()
-        return await crawler.arun(
-            url=url,
-            config=build_run_config(request),
+        effective_request = (
+            request.model_copy(update={"cache_mode": "bypass"}) if solver.enabled else request
         )
+        result = await crawler.arun(
+            url=url,
+            config=build_run_config(effective_request),
+        )
+        # The cache write precedes these verification receipts in Crawl4AI.
+        if solver.enabled:
+            result.metadata = dict(getattr(result, "metadata", None) or {})
+            result.metadata["captcha_cache_mode"] = "bypass"
+        if captcha_receipt:
+            result.metadata = dict(getattr(result, "metadata", None) or {})
+            result.metadata["captcha_recovery"] = captcha_receipt
+        return result
     finally:
         with suppress(Exception):
             await crawler.close()
@@ -209,30 +241,37 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
         error = getattr(result, "error_message", None) or "Crawl failed"
         raise HTTPException(status_code=502, detail=error)
 
-    markdown_obj = getattr(result, "markdown", None)
-    if markdown_obj is None:
-        markdown_str = ""
-    elif hasattr(markdown_obj, "raw_markdown"):
-        markdown_str = markdown_obj.raw_markdown or ""
-    else:
-        markdown_str = str(markdown_obj)
+    markdown_str = _markdown_text(result)
 
     metadata = getattr(result, "metadata", None) or {}
     from service.research.content import assess_content
 
+    captcha = metadata.get("captcha_recovery")
+    initial_status = getattr(result, "status_code", None)
+    status_code = initial_status
+    if captcha and captcha.get("status") == "solved":
+        final_status = captcha.get("final_status_code")
+        if isinstance(final_status, int) and 100 <= final_status <= 599:
+            status_code = final_status
     assessment = assess_content(
-        markdown_str, metadata.get("title") or "", getattr(result, "status_code", None) or 200
+        markdown_str,
+        metadata.get("title") or "",
+        status_code or 200,
+        captcha,
     )
     return {
         "url": str(request.url),
         "cache_mode": request.cache_mode,
-        "status_code": getattr(result, "status_code", None),
+        "status_code": status_code,
+        "initial_status_code": initial_status,
+        "effective_cache_mode": metadata.get("captcha_cache_mode", request.cache_mode),
         "links": getattr(result, "links", {}) or {},
         "assessment": assessment,
         "next_action": "browser" if assessment["status"] != "read" else None,
         "markdown": markdown_str,
         "title": metadata.get("title"),
         "metadata": metadata,
+        "captcha": captcha,
     }
 
 

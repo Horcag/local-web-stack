@@ -248,10 +248,12 @@ async def read_url(url: str, cache_mode: str = "enabled") -> dict[str, Any]:
         "source": "crawl4ai",
         "crawl4ai_url": CRAWL4AI_URL,
         "cache_mode": cache_mode,
+        "effective_cache_mode": payload.get("effective_cache_mode", cache_mode),
         "markdown": markdown,
         "assessment": payload.get("assessment"),
         "next_action": payload.get("next_action"),
         "title": payload.get("title"),
+        "captcha": payload.get("captcha"),
     }
 
 
