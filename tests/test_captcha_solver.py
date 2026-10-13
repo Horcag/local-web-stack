@@ -103,6 +103,27 @@ def test_request_reuses_work_ocr_wire_contract(gateway):
     assert options == [{"timeout": 15.0, "trust_env": False}]
 
 
+def test_two_images_preserve_main_then_reference_wire_order(gateway):
+    _, requests, _ = gateway
+    reference = PNG + b"reference"
+    assert asyncio.run(solver().complete_images([PNG, reference], "ordered objects")) == "1234"
+    parts = json.loads(requests[0].content)["messages"][0]["content"]
+    assert json.loads(requests[0].content)["max_tokens"] == 4096
+    assert parts[0] == {"type": "text", "text": "ordered objects"}
+    assert [base64.b64decode(p["image_url"]["url"].split(",", 1)[1]) for p in parts[1:]] == [
+        PNG,
+        reference,
+    ]
+
+
+@pytest.mark.parametrize("images", [[], [PNG] * 3, [PNG, b"bad"], [PNG, PNG * 20000]])
+def test_image_pair_limits_reject_before_gateway(images, gateway):
+    _, requests, _ = gateway
+    with pytest.raises(CaptchaSolverError, match="invalid_image"):
+        asyncio.run(solver().complete_images(images, "ordered objects"))
+    assert not requests
+
+
 def test_optional_auth_and_custom_model(gateway):
     _, requests, _ = gateway
     assert solve(solver(model="chosen-model")) == "1234"

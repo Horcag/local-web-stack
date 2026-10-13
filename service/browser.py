@@ -53,7 +53,7 @@ class BrowserRuntime:
         self._driver = await async_playwright().start()
         try:
             self._browser = await self._driver.chromium.connect_over_cdp(
-                self.endpoint, timeout=15000
+                self.endpoint, timeout=15000, no_defaults=True
             )
         except Exception:
             await self.close()

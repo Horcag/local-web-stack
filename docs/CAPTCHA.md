@@ -13,7 +13,7 @@ Recovery is disabled by default. Keep credentials in a private operator environm
 | LOCAL_WEB_CAPTCHA_MODEL | One model; default gemini-3.8-flash-high. Configure a model actually exposed by the chosen gateway. |
 | LOCAL_WEB_CAPTCHA_TIMEOUT_SECONDS | Per-call timeout; default 15 seconds, capped at 30. |
 
-The gateway receives only the cropped CAPTCHA image and the bounded recognition/puzzle prompt. Full pages, browser cookies and session storage are not sent. Images and model answers stay in memory; responses expose outcome and attempt count.
+The gateway receives only the cropped CAPTCHA image, a separate order-reference image when required, and the bounded recognition/puzzle prompt. Each PNG is limited to 1 MiB, with at most two images per call. Full pages, browser cookies and session storage are not sent. Images and model answers stay in memory; responses expose outcome and attempt count.
 
 For Docker, loopback refers to the container. Verify the API route from the service before enabling solving. Compose can load the private configuration with:
 
@@ -65,11 +65,14 @@ The container binds its own private IPv4 when BIND_HOST=container, mounts only t
 
 ## Supported behavior
 - Text-image forms: a visible CAPTCHA-specific image, CAPTCHA input and submit control inside the same form.
-- Yandex checkbox introduction: the recognized challenge's .CheckboxCaptcha-Button can reveal a text-image or ordered-point form.
+- Yandex checkbox introduction: recovery waits for the recognized .CheckboxCaptcha-Button to become a submit control before clicking it and waiting for the challenge transition.
+- Yandex silhouette puzzles: the recognized same-form main image and separate painted order canvas are sent in that order. A tainted canvas is photographed at its native resolution against a temporary opaque background. Only the main image wrapper receives the validated image-relative clicks. Recognized numbered selection markers are temporarily hidden during image capture; the pointer moves outside the image so hovered delete icons cannot obscure their numbers. Existing selections and unexpected marker additions or removals stop recovery.
 - Ordered-click puzzles: a raster CAPTCHA image, a recognized instruction element and submit control in the same form. The model returns at most eight distinct integer image-relative coordinates. The browser preserves their order and scales them to measured CSS coordinates.
 - Crawl4AI installs recovery before HTML retrieval, while the page is still open. Configured CDP reading uses the same recovery logic on its task-owned tab.
 
-Recovery is bounded to two model attempts and 45 seconds. An unchanged rejected challenge is not sent twice. Image identity, URL, instructions and layout are checked before applying points. Selection markers can change appearance without invalidating the underlying image identity. The challenge must disappear at the requested host/path/query before the outcome is solved. A model response or submitted form alone is not acceptance.
+On recognized Yandex gates, a lone Dark Reader fallback stylesheet is removed when no active full theme exists. This repairs hidden challenge details without changing an active theme. CDP attachment preserves the existing browser's default options, including download settings.
+
+Recovery is bounded to two model attempts and 45 seconds. A newly presented recognized Yandex gate after submission shares that same attempt budget, deadline and private image-pair history. Single-image calls use a 1,000-token completion limit; two-image matching uses 4,096 to leave room for the configured model's reasoning and JSON answer. An unchanged rejected challenge is not sent twice. Image identity, URL, instructions and layout are checked before applying points. Both silhouette images must fit the current viewport, and capture-induced scrolling or layout changes invalidate the snapshot. Selection markers can change appearance without invalidating the underlying image identity. The challenge must disappear at the requested host/path/query before the outcome is solved. A model response or submitted form alone is not acceptance.
 
 With recovery enabled, reads bypass Crawl4AI's HTML cache so that verification receipts cannot be lost on a later cached read. Responses report requested cache_mode and effective_cache_mode separately. Interrupted recovery retains the observed challenge flag and stays blocked. Actual final document status is captured during navigation; the initial HTTP status remains available and is not silently replaced with a guessed 200.
 

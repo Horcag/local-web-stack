@@ -33,6 +33,10 @@ class Control:
     async def is_visible(self):
         return self.visible
 
+    async def get_attribute(self, name):
+        assert self.kind == "checkbox" and name == "type"
+        return "submit"
+
     async def screenshot(self, **kwargs):
         assert self.kind == "image"
         assert kwargs == {"type": "png", "timeout": 5000}
@@ -93,6 +97,8 @@ class Page:
             return Control(self, "body")
         if selector == "form":
             return Matches(self.forms)
+        if selector == "#advanced-captcha-form":
+            return Matches([])
         if selector == ".CheckboxCaptcha-Button":
             return Matches([self.checkbox] if self.checkbox else [])
         raise AssertionError(f"Unexpected page selector: {selector}")

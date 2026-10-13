@@ -10,6 +10,9 @@ from urllib.parse import parse_qs, urlsplit
 
 from service.captcha_solver import CaptchaSolver, CaptchaSolverError
 from service.captcha_points import puzzle_points
+from service.captcha_yandex import FORM as YANDEX_FORM, SILHOUETTE as YANDEX_SILHOUETTE
+from service.captcha_yandex import HOSTS as YANDEX_HOSTS
+from service.captcha_yandex import recover_yandex_points
 from service.research.content import is_captcha_gate
 
 IMAGE_SELECTOR = (
@@ -26,6 +29,32 @@ INSTRUCTION_SELECTOR = (
 )
 MAX_ATTEMPTS = 2
 RECOVERY_TIMEOUT_SECONDS = 45
+
+_CLEAR_ORPHAN_THEME = """() => {
+    const fallback = [...document.querySelectorAll('style.darkreader--fallback')];
+    const active = [...document.querySelectorAll('style.darkreader')]
+        .some(s => !s.classList.contains('darkreader--fallback'));
+    if (active) return 0;
+    fallback.forEach(s => s.remove());
+    return fallback.length;
+}"""
+
+
+async def _restore_yandex_render(page: Any, receipt: dict) -> None:
+    # A lone extension fallback can hide the order glyphs after its engine stopped.
+    # Preserve an active full theme and limit repair to the observed Yandex gate.
+    current = urlsplit(page.url)
+    if (
+        current.hostname in YANDEX_HOSTS
+        and current.scheme in {"http", "https"}
+        and current.username is None
+        and current.password is None
+        and await _is_challenge(page)
+        and callable(getattr(page, "evaluate", None))
+    ):
+        removed = await page.evaluate(_CLEAR_ORPHAN_THEME)
+        if removed:
+            receipt["render_repaired"] = "orphan_darkreader_fallback"
 
 
 async def _visible(scope: Any, selector: str) -> Any:
@@ -77,6 +106,27 @@ async def _wait_after_submit(page: Any) -> None:
         await asyncio.sleep(0.3)
         if not await _is_challenge(page):
             return
+
+
+async def _checkbox_ready(checkbox: Any) -> bool:
+    # Yandex initially uses type=button while its guard prepares the form.
+    # Clicking that state does not submit the ready challenge.
+    for _ in range(40):
+        if await checkbox.get_attribute("type") == "submit":
+            return True
+        await asyncio.sleep(0.25)
+    return False
+
+
+async def _wait_checkbox_transition(page: Any) -> None:
+    for _ in range(40):
+        if (
+            not await _is_challenge(page)
+            or await page.locator("#advanced-captcha-form").count()
+            or await _text_form(page) is not None
+        ):
+            return
+        await asyncio.sleep(0.25)
 
 
 async def _point_form(page: Any) -> tuple[Any, str, Any] | None:
@@ -166,7 +216,13 @@ async def _recover_points(page: Any, solver: CaptchaSolver, target: str, receipt
     return receipt | {"status": "rejected"}
 
 
-async def _recover(page: Any, solver: CaptchaSolver, target: str, receipt: dict) -> dict:
+async def _recover(
+    page: Any,
+    solver: CaptchaSolver,
+    target: str,
+    receipt: dict,
+    seen_yandex_images: set[tuple[bytes, bytes]],
+) -> dict:
     if not await _is_challenge(page):
         return receipt | {"status": "not_needed"}
     receipt["challenge_observed"] = True
@@ -175,20 +231,54 @@ async def _recover(page: Any, solver: CaptchaSolver, target: str, receipt: dict)
 
     # Yandex can first display a checkbox and then a text-image challenge.
     # The click is limited to its recognized challenge and known control.
-    host = urlsplit(page.url).hostname or ""
+    origin = urlsplit(page.url)
+    host = origin.hostname or ""
     if host in {"yandex.ru", "www.yandex.ru", "yandex.com", "www.yandex.com"}:
+        await _restore_yandex_render(page, receipt)
         checkbox = await _visible(page, ".CheckboxCaptcha-Button")
         if checkbox is not None:
+            if not await _checkbox_ready(checkbox):
+                return receipt | {"status": "checkbox_not_ready"}
             await checkbox.click(timeout=5000)
-            await _wait_after_submit(page)
+            await _wait_checkbox_transition(page)
             if not await _is_challenge(page):
                 status = "solved" if _at_target(page.url, target) else "unexpected_page"
                 return receipt | {"status": status}
 
     previous_digest = None
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    for attempt in range(receipt["attempts"] + 1, MAX_ATTEMPTS + 1):
         challenge = await _text_form(page)
         if challenge is None:
+            if host in {"yandex.ru", "www.yandex.ru", "yandex.com", "www.yandex.com"}:
+                await _restore_yandex_render(page, receipt)
+            yandex = await recover_yandex_points(
+                page, solver, target, receipt, _at_target, seen_yandex_images
+            )
+            if yandex is not None:
+                current = urlsplit(page.url)
+                if (
+                    yandex["status"] == "unexpected_page"
+                    and current.hostname == host
+                    and current.scheme == origin.scheme
+                    and current.port == origin.port
+                    and current.path == "/showcaptcha"
+                    and current.username is None
+                    and current.password is None
+                    and await _is_challenge(page)
+                    and (
+                        await _visible(page, ".CheckboxCaptcha-Button") is not None
+                        or (
+                            await page.locator(YANDEX_FORM).count() == 1
+                            and await page.locator(YANDEX_FORM)
+                            .nth(0)
+                            .locator(YANDEX_SILHOUETTE)
+                            .count()
+                            == 1
+                        )
+                    )
+                ):
+                    return yandex | {"status": "new_challenge"}
+                return yandex
             return await _recover_points(page, solver, target, receipt)
         image, field, submit = challenge
         challenge_url = page.url
@@ -221,6 +311,16 @@ async def _recover(page: Any, solver: CaptchaSolver, target: str, receipt: dict)
     return receipt | {"status": "rejected"}
 
 
+async def _recover_sequence(page: Any, solver: CaptchaSolver, target: str, receipt: dict) -> dict:
+    seen_yandex_images: set[tuple[bytes, bytes]] = set()
+    for _ in range(MAX_ATTEMPTS):
+        result = await _recover(page, solver, target, receipt, seen_yandex_images)
+        if result["status"] != "new_challenge" or result["attempts"] >= MAX_ATTEMPTS:
+            return result
+        receipt.update(result)
+    return receipt | {"status": "rejected"}
+
+
 async def recover_captcha(page: Any, solver: CaptchaSolver, target_url: str) -> dict:
     """Return an outcome only; model output and screenshots stay in memory."""
     receipt = {"attempts": 0, "status": "disabled"}
@@ -236,7 +336,7 @@ async def recover_captcha(page: Any, solver: CaptchaSolver, target_url: str) -> 
         page.on("response", navigation_response)
     try:
         return await asyncio.wait_for(
-            _recover(page, solver, target_url, receipt), RECOVERY_TIMEOUT_SECONDS
+            _recover_sequence(page, solver, target_url, receipt), RECOVERY_TIMEOUT_SECONDS
         )
     except TimeoutError:
         return receipt | {"status": "deadline"}

@@ -7,6 +7,7 @@ import math
 import os
 import re
 import unicodedata
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -145,28 +146,36 @@ class CaptchaSolver:
         """Return bounded raw model text for validation by a challenge-specific parser."""
         if not self.enabled or not image_bytes:
             return None
+        return await self.complete_images([image_bytes], prompt)
+
+    async def complete_images(self, images: Sequence[bytes], prompt: str) -> str | None:
+        """Complete one CAPTCHA image, or its image plus a separate order reference."""
+        if not self.enabled:
+            return None
         if not self.configured:
             raise CaptchaSolverError("unconfigured")
-        if len(image_bytes) > MAX_IMAGE_BYTES or not image_bytes.startswith(PNG_SIGNATURE):
+        if not 1 <= len(images) <= 2 or any(
+            len(image) > MAX_IMAGE_BYTES or not image.startswith(PNG_SIGNATURE) for image in images
+        ):
             raise CaptchaSolverError("invalid_image")
         if not prompt.strip() or len(prompt) > 2000:
             raise CaptchaSolverError("invalid_prompt")
-        encoded = base64.b64encode(image_bytes).decode("ascii")
+        message_content: list[dict] = [{"type": "text", "text": prompt}]
+        for image in images:
+            encoded = base64.b64encode(image).decode("ascii")
+            message_content.append(
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}
+            )
         body = {
             "model": self._model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{encoded}"},
-                        },
-                    ],
+                    "content": message_content,
                 }
             ],
-            "max_tokens": 1000,
+            # Matching several symbols consumes reasoning tokens before the JSON.
+            "max_tokens": 4096 if len(images) == 2 else 1000,
             "temperature": 0.0,
         }
         headers = {"Content-Type": "application/json"}
