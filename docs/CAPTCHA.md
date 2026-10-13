@@ -76,7 +76,13 @@ LOCAL_WEB_BROWSER_CDP_HOST_HEADER=localhost
 
 Start it with docker compose --env-file /absolute/private/captcha.env --profile browser-gateway up -d browser-relay crawl4ai. The Host override is explicit and defaults to empty; Chrome can reject a relay's DNS name. HTTP discovery is bounded and an advertised loopback WebSocket authority is rewritten to the explicitly configured relay authority. This resolves the current browser identity on each attachment, including after browser restarts. Direct WebSocket URLs retain their configured destination.
 
+The private HTTP discovery probe is limited to five seconds and 16 KiB. For endpoints advertising a non-loopback WebSocket address, Playwright retains its normal HTTP discovery behavior and timeout. The relay does not change native browser download guards.
+
 The sidecar mounts only the owner-mode-0600 socket, runs under its numeric owner with all capabilities dropped, and publishes no host port. Browser tools create their own tabs in the connected browser's existing default context. The research collector can use the configured browser reader when crawling is blocked. Disconnecting preserves the browser and unrelated tabs.
+
+`read_url` and `/md` use the same configured browser runtime after a blocked or partial crawl, or a failed crawl with no body. This fallback includes lock acquisition in its 30-second deadline and disables CAPTCHA recovery for the additional read. It accepts only the requested scheme, host, port, path and query values, allowing equivalent URL encoding, a trailing slash and server-added query parameters. Acceptance also requires a known 2xx document response, complete content assessed as read, and no CAPTCHA or browser privacy-error page. An unavailable or rejected fallback preserves the original assessment.
+
+Accepted responses identify `source=browser-fallback` and `method=cdp-visible-text`. The current `captcha`, `status_code` and assessment describe the browser result; `initial_captcha` and `initial_status_code` preserve the crawl outcome. The research collector records this provenance and never repeats a fallback already attempted by `/md`.
 
 ## Supported behavior
 - Text-image forms: a visible CAPTCHA-specific image, CAPTCHA input and submit control inside the same form.

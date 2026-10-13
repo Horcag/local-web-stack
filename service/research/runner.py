@@ -177,6 +177,20 @@ class Runner:
             method=method,
             error=payload.get("error"),
         )
+        browser_fallback = payload.get("browser_fallback") or {}
+        if not isinstance(browser_fallback, dict):
+            browser_fallback = {}
+        if browser_fallback.get("status") == "accepted":
+            result["method"] = payload.get("method") or method
+            result["provenance"] = [
+                *source.get("provenance", []),
+                {
+                    "kind": "browser",
+                    "method": result["method"],
+                    "url": browser_fallback.get("url"),
+                    "initial_captcha": payload.get("initial_captcha"),
+                },
+            ]
         if payload.get("truncated") and result["status"] == "read":
             result.update(status="partial", reasons=["reader_truncated"])
         fallback_needed = result["status"] in {"blocked", "partial"} or (
@@ -186,7 +200,13 @@ class Runner:
         )
         if fallback_needed:
             fallback_error = None
-            if self.browser_reader and self.store.reserve(source["run_id"]):
+            # /md already owns the bounded browser fallback. A rejected receipt
+            # must not start another read and renew the CAPTCHA attempt budget.
+            if (
+                "browser_fallback" not in payload
+                and self.browser_reader
+                and self.store.reserve(source["run_id"])
+            ):
                 try:
                     browser = await self.browser_reader(source["url"])
                     if browser:

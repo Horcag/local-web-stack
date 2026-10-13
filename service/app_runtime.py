@@ -1,6 +1,7 @@
 """Research, browser and static dashboard wiring for the Crawl4AI service."""
 
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 import os
 
@@ -15,6 +16,7 @@ from service.research import create_router
 
 def attach_research(app: FastAPI) -> None:
     browser = BrowserRuntime()
+    app.state.browser_runtime = browser
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -24,7 +26,8 @@ def attach_research(app: FastAPI) -> None:
             await browser.close()
 
     app.router.lifespan_context = lifespan
-    app.include_router(create_router(browser_reader=browser.read if browser.configured else None))
+    reader = partial(browser.read, allow_captcha_recovery=False) if browser.configured else None
+    app.include_router(create_router(browser_reader=reader))
     app.include_router(create_browser_router(browser))
 
     @app.middleware("http")

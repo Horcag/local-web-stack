@@ -17,6 +17,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from service.browser_navigation import NavigationWatch
 from service.captcha_browser import recover_captcha
 from service.captcha_solver import CaptchaSolver
 
@@ -152,6 +153,8 @@ class BrowserRuntime:
         self._browser: Any = None
         self._tabs: dict[str, Any] = {}
         self._targets: dict[str, str] = {}
+        self._navigation_status: dict[str, int | None] = {}
+        self._navigation_events: dict[str, NavigationWatch] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -189,6 +192,34 @@ class BrowserRuntime:
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    def _watch_navigation(self, page: Any, tab_id: str) -> None:
+        if callable(getattr(page, "on", None)):
+            self._navigation_events[tab_id] = NavigationWatch(
+                page, lambda status: self._navigation_status.__setitem__(tab_id, status)
+            )
+
+    def _forget(self, tab_id: str) -> Any:
+        page = self._tabs.pop(tab_id, None)
+        watch = self._navigation_events.pop(tab_id, None)
+        if watch:
+            watch.close()
+        self._targets.pop(tab_id, None)
+        self._navigation_status.pop(tab_id, None)
+        return page
+
+    async def _navigate(self, page: Any, tab_id: str, url: str) -> None:
+        self._navigation_status[tab_id] = None
+        watch = self._navigation_events.get(tab_id)
+        revision = watch.revision if watch else 0
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        if watch and watch.revision != revision:
+            return
+        if watch:
+            watch.accept_goto()
+        status = getattr(response, "status", None)
+        if type(status) is int and 100 <= status <= 599:
+            self._navigation_status[tab_id] = status
+
     async def _open(self, url: str) -> str:
         self._validate_url(url)
         await self._connect()
@@ -201,11 +232,11 @@ class BrowserRuntime:
         tab_id = uuid4().hex
         self._tabs[tab_id] = page
         self._targets[tab_id] = url
+        self._watch_navigation(page, tab_id)
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            await self._navigate(page, tab_id, url)
         except BaseException:
-            self._tabs.pop(tab_id, None)
-            self._targets.pop(tab_id, None)
+            self._forget(tab_id)
             with suppress(Exception):
                 await page.close()
             raise
@@ -214,28 +245,41 @@ class BrowserRuntime:
     def _page(self, tab_id: str) -> Any:
         page = self._tabs.get(tab_id)
         if page is None or page.is_closed():
-            self._tabs.pop(tab_id, None)
-            self._targets.pop(tab_id, None)
+            self._forget(tab_id)
             raise HTTPException(404, "Unknown or closed local-web tab")
         return page
 
-    async def _snapshot(self, tab_id: str) -> dict:
+    async def _snapshot(self, tab_id: str, *, allow_captcha_recovery: bool = True) -> dict:
         page = self._page(tab_id)
-        captcha = await recover_captcha(page, CaptchaSolver.from_env(), self._targets[tab_id])
+        watch = self._navigation_events.get(tab_id)
+        recovery_revision = watch.revision if watch else 0
+        captcha = {"attempts": 0, "status": "not_attempted"}
+        if allow_captcha_recovery:
+            captcha = await recover_captcha(page, CaptchaSolver.from_env(), self._targets[tab_id])
+        if captcha.get("status") == "solved" and (not watch or watch.revision == recovery_revision):
+            final_status = captcha.get("final_status_code")
+            self._navigation_status[tab_id] = (
+                final_status if type(final_status) is int and 100 <= final_status <= 599 else None
+            )
+        original_url, revision = page.url, watch.revision if watch else 0
         text = await page.locator("body").inner_text(timeout=15000)
         links = await page.locator("a[href]").evaluate_all(
             "els => els.slice(0, 150).map(e => ({href:e.href,text:e.innerText.slice(0,150)}))"
         )
+        title = await page.title()
+        stable = (page.url, watch.revision if watch else 0) == (original_url, revision)
         return {
             "tab_id": tab_id,
             "url": page.url,
-            "title": await page.title(),
+            "title": title,
             "markdown": text[:200000],
             "truncated": len(text) > 200000,
             "links": links,
             "method": "cdp-visible-text",
             "captcha": captcha,
-            "status_code": captcha.get("final_status_code"),
+            "status_code": self._navigation_status.get(tab_id)
+            if stable and not (watch and watch.inflight)
+            else None,
         }
 
     async def open(self, url: str) -> dict:
@@ -244,8 +288,7 @@ class BrowserRuntime:
             try:
                 return await self._snapshot(tab_id)
             except BaseException:
-                page = self._tabs.pop(tab_id, None)
-                self._targets.pop(tab_id, None)
+                page = self._forget(tab_id)
                 if page is not None:
                     with suppress(Exception):
                         await page.close()
@@ -268,7 +311,7 @@ class BrowserRuntime:
                     await locator.fill(request.value, timeout=10000)
             elif request.action == "navigate":
                 self._validate_url(request.value)
-                await page.goto(request.value, wait_until="domcontentloaded", timeout=45000)
+                await self._navigate(page, tab_id, request.value)
                 self._targets[tab_id] = request.value
             else:
                 await page.mouse.wheel(0, 800)
@@ -278,30 +321,30 @@ class BrowserRuntime:
         async with self._lock:
             page = self._page(tab_id)
             await page.close()
-            self._tabs.pop(tab_id, None)
-            self._targets.pop(tab_id, None)
+            self._forget(tab_id)
             return {"closed": tab_id}
 
-    async def read(self, url: str) -> dict | None:
+    async def read(self, url: str, *, allow_captcha_recovery: bool = True) -> dict | None:
         if not self.configured:
             return None
         async with self._lock:
             tab_id = await self._open(url)
             try:
-                return await self._snapshot(tab_id)
+                return await self._snapshot(tab_id, allow_captcha_recovery=allow_captcha_recovery)
             finally:
-                page = self._tabs.pop(tab_id, None)
-                self._targets.pop(tab_id, None)
+                page = self._forget(tab_id)
                 if page is not None:
                     with suppress(Exception):
                         await page.close()
 
     async def close(self) -> None:
-        for page in self._tabs.values():
+        for tab_id in list(self._tabs):
+            page = self._forget(tab_id)
             with suppress(Exception):
                 await page.close()
         self._tabs.clear()
         self._targets.clear()
+        self._navigation_status.clear()
         # stop the connection/driver; never invoke browser.close() on a borrowed browser.
         if self._driver is not None:
             with suppress(Exception):

@@ -245,7 +245,8 @@ async def read_url(url: str, cache_mode: str = "enabled") -> dict[str, Any]:
         markdown = ""
     return {
         "url": url,
-        "source": "crawl4ai",
+        "source": payload.get("source", "crawl4ai"),
+        "method": payload.get("method"),
         "crawl4ai_url": CRAWL4AI_URL,
         "cache_mode": cache_mode,
         "effective_cache_mode": payload.get("effective_cache_mode", cache_mode),
@@ -254,6 +255,13 @@ async def read_url(url: str, cache_mode: str = "enabled") -> dict[str, Any]:
         "next_action": payload.get("next_action"),
         "title": payload.get("title"),
         "captcha": payload.get("captcha"),
+        "initial_captcha": payload.get("initial_captcha"),
+        "browser_fallback": payload.get("browser_fallback"),
+        "status_code": payload.get("status_code"),
+        "initial_status_code": payload.get("initial_status_code"),
+        "links": payload.get("links")
+        if (payload.get("browser_fallback") or {}).get("status") == "accepted"
+        else None,
     }
 
 

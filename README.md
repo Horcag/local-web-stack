@@ -65,6 +65,12 @@ Do not expose a debugging endpoint publicly. A configured endpoint does not prov
 The optional `browser-gateway` Compose profile connects a private host Unix socket to the CDP
 browser route. See [CAPTCHA recovery](docs/CAPTCHA.md) for its socket and Host-header configuration.
 
+With that route configured, `read_url` automatically tries the existing browser profile when crawling
+returns a blocked, partial or empty failed page. This fallback has a 30-second deadline and makes no
+additional CAPTCHA model calls. It accepts only a verified target URL, a known successful HTTP status
+and complete readable content. Responses preserve the initial gate receipt alongside the current
+browser result and identify the acquisition method. A rejected fallback stays pending for browser work.
+
 The crawler's persistent Docker profile is separate from a user's desktop Chrome profile.
 Patchright/headed Chrome is not a guarantee against CAPTCHA or access restrictions.
 
