@@ -62,6 +62,8 @@ to an explicitly chosen reachable Chrome CDP endpoint. The adapter creates and c
 uses the selected browser context, and disconnects on shutdown without closing the browser or existing
 tabs. Docker cannot reach a host browser through container `127.0.0.1`; configure the route deliberately.
 Do not expose a debugging endpoint publicly. A configured endpoint does not prove connectivity.
+The optional `browser-gateway` Compose profile connects a private host Unix socket to the CDP
+browser route. See [CAPTCHA recovery](docs/CAPTCHA.md) for its socket and Host-header configuration.
 
 The crawler's persistent Docker profile is separate from a user's desktop Chrome profile.
 Patchright/headed Chrome is not a guarantee against CAPTCHA or access restrictions.
@@ -77,6 +79,7 @@ and successful page recovery is verified before reporting a solve. Unknown puzzl
 | `LOCAL_WEB_ALLOWED_HOSTS` | Localhost and named Compose routes; configure explicit reverse-proxy hosts. |
 | `LOCAL_WEB_RESEARCH_DB` | `work/research.sqlite3` locally; `/app/work/research.sqlite3` in Compose. |
 | `LOCAL_WEB_BROWSER_CDP_URL` | Empty: explicit external-browser handoff/import. |
+| `LOCAL_WEB_BROWSER_CDP_HOST_HEADER` | Empty: preserve the normal Host header; opt in for a private CDP relay. |
 | `LOCAL_WEB_SEARCH_DELAY_SECONDS` | Minimum spacing between research search requests. |
 | `LOCAL_WEB_RESEARCH_ALLOW_PRIVATE` | Off; enable only for explicitly scoped internal targets/test fixtures. |
 | `LOCAL_WEB_SEARCH_ENGINES` | Existing MCP pool: `mojeek,mwmbl,yandex`. |

@@ -63,6 +63,21 @@ docker compose --env-file /absolute/private/captcha.env --profile captcha-gatewa
 
 The container binds its own private IPv4 when BIND_HOST=container, mounts only the socket, and publishes no host port. A missing host socket fails without creating a directory. The relay preserves gateway authentication and refuses mismatched actual listeners. There is no host-network container or public listener. Both relay stages bound connections, buffers, idle time and shutdown; no gateway payloads are logged.
 
+## Existing browser profile through Docker
+The persistent crawler profile and the operator's Chrome profile hold separate sessions. Configure the existing profile's CDP route when reading requires its session. The optional browser-gateway profile reuses the same relay module with a separate private Unix socket and host socket/service pair. Use the unit pattern above with a distinct browser socket, unit names, and the verified host CDP port as the target.
+
+```dotenv
+LOCAL_WEB_BROWSER_RELAY_SOCKET=/absolute/private/browser-gateway.sock
+LOCAL_WEB_BROWSER_RELAY_UID=1000
+LOCAL_WEB_BROWSER_RELAY_GID=1000
+LOCAL_WEB_BROWSER_CDP_URL=http://browser-relay:19226
+LOCAL_WEB_BROWSER_CDP_HOST_HEADER=localhost
+```
+
+Start it with docker compose --env-file /absolute/private/captcha.env --profile browser-gateway up -d browser-relay crawl4ai. The Host override is explicit and defaults to empty; Chrome can reject a relay's DNS name. HTTP discovery is bounded and an advertised loopback WebSocket authority is rewritten to the explicitly configured relay authority. This resolves the current browser identity on each attachment, including after browser restarts. Direct WebSocket URLs retain their configured destination.
+
+The sidecar mounts only the owner-mode-0600 socket, runs under its numeric owner with all capabilities dropped, and publishes no host port. Browser tools create their own tabs in the connected browser's existing default context. The research collector can use the configured browser reader when crawling is blocked. Disconnecting preserves the browser and unrelated tabs.
+
 ## Supported behavior
 - Text-image forms: a visible CAPTCHA-specific image, CAPTCHA input and submit control inside the same form.
 - Yandex checkbox introduction: recovery waits for the recognized .CheckboxCaptcha-Button to become a submit control before clicking it and waiting for the challenge transition.

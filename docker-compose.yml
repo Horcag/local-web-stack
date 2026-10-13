@@ -1,6 +1,31 @@
 name: local-web-stack
 
 services:
+  browser-relay:
+    image: "${LOCAL_WEB_GATEWAY_RELAY_IMAGE:-local-web-stack-crawl4ai}"
+    profiles: [browser-gateway]
+    container_name: local-web-browser-relay
+    user: "${LOCAL_WEB_BROWSER_RELAY_UID:-1000}:${LOCAL_WEB_BROWSER_RELAY_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      LOCAL_WEB_GATEWAY_RELAY_BIND_HOST: container
+      LOCAL_WEB_GATEWAY_RELAY_BIND_PORT: "19226"
+      LOCAL_WEB_GATEWAY_RELAY_TARGET_UNIX_PATH: /run/browser-gateway.sock
+    volumes:
+      - type: bind
+        source: "${LOCAL_WEB_BROWSER_RELAY_SOCKET:-/run/local-web/browser-gateway.sock}"
+        target: /run/browser-gateway.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    command: .venv/bin/python -m service.gateway_relay
+
   gateway-relay:
     image: "${LOCAL_WEB_GATEWAY_RELAY_IMAGE:-local-web-stack-crawl4ai}"
     profiles: [captcha-gateway]
@@ -83,6 +108,7 @@ services:
       SEARXNG_URL: "http://local-web-searxng:8080"
       LOCAL_WEB_RESEARCH_DB: "/app/work/research.sqlite3"
       LOCAL_WEB_BROWSER_CDP_URL: "${LOCAL_WEB_BROWSER_CDP_URL:-}"
+      LOCAL_WEB_BROWSER_CDP_HOST_HEADER: "${LOCAL_WEB_BROWSER_CDP_HOST_HEADER:-}"
       CRAWL4AI_DEFAULT_PROXY: "socks5://byedpi:1080"
       CRAWL4AI_CACHE_MODE: "enabled"
       CRAWL4AI_PERSISTENT_CONTEXT: "true"
