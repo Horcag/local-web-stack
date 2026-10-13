@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -115,7 +116,6 @@ def test_search_pagination_and_empty_content_contract():
             200, json={"results": [], "markdown": "", "assessment": {"status": "failed"}}
         )
 
-    module._SEARCH_CACHE.clear()
     with patch.object(
         module.httpx,
         "AsyncClient",
@@ -124,7 +124,9 @@ def test_search_pagination_and_empty_content_contract():
         asyncio.run(module.web_search("paging", page=2))
         asyncio.run(module.web_search("paging", page=3))
         empty = asyncio.run(module.read_url("https://example.com"))
-    assert [r.url.params["pageno"] for r in requests[:2]] == ["2", "3"]
+    assert [r.method for r in requests[:2]] == ["POST", "POST"]
+    assert [r.url.path for r in requests[:2]] == ["/search", "/search"]
+    assert [json.loads(r.content)["page"] for r in requests[:2]] == [2, 3]
     assert empty["markdown"] == ""
     assert empty["assessment"]["status"] == "failed"
     with pytest.raises(ValueError):

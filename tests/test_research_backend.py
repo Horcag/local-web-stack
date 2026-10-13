@@ -13,15 +13,22 @@ from service.research.content import assess_content, canonical_url
 from service.research.models import DiscoverRequest, RunRequest
 from service.research.runner import Runner, coverage
 from service.research.store import Store
+from service.search import SearchBackend
 
 TEXT = "This is substantive source evidence about research findings and limitations. " * 20
 
 
 class ResearchTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        delay = patch.dict(os.environ, {"LOCAL_WEB_SEARCH_DELAY_SECONDS": "0"})
+        delay = patch.dict(
+            os.environ, {"LOCAL_WEB_SEARCH_DELAY_SECONDS": "0", "LOCAL_WEB_SEARCH_ENGINES": "test"}
+        )
         delay.start()
         self.addCleanup(delay.stop)
+        self.search_backend = SearchBackend()
+        backend = patch("service.search.default_backend", return_value=self.search_backend)
+        backend.start()
+        self.addCleanup(backend.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name) / "research.sqlite3"
         self.store = Store(self.path)
@@ -151,7 +158,11 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
                     request=httpx.Request("GET", url),
                     json={
                         "results": [
-                            {"url": "https://example.org/a", "title": "A", "engine": "test"}
+                            {
+                                "url": "https://nih.gov/a",
+                                "title": kw["params"]["q"],
+                                "engine": "test",
+                            }
                         ],
                         "unresponsive_engines": [["engine", "timeout"]],
                     },
@@ -164,7 +175,7 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, second["discovered_results"])
         self.assertEqual(6, len(calls))
         self.assertEqual({"topic", "variant", "topic detail"}, {c["q"] for c in calls})
-        self.assertEqual({1, 2}, {c["pageno"] for c in calls})
+        self.assertEqual({"1", "2"}, {c["pageno"] for c in calls})
         self.assertEqual(1, len(self.store.sources(self.run["id"])))
         self.assertEqual(6, len(self.store.sources(self.run["id"])[0]["provenance"]))
         self.assertEqual(6, len(coverage(self.store, self.run["id"])["engine_errors"]))
@@ -333,8 +344,9 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
                     json={
                         "results": [
                             {
-                                "url": "https://example.org/" + kw["params"]["q"].replace(" ", "-"),
-                                "title": "A",
+                                "url": "https://nih.gov/" + kw["params"]["q"].replace(" ", "-"),
+                                "title": kw["params"]["q"],
+                                "engine": "test",
                             }
                         ]
                     },

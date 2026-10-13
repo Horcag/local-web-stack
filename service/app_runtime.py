@@ -12,11 +12,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from service.browser import BrowserRuntime, create_browser_router
 from service.research import create_router
+from service.search import SearchBackend, create_search_router
 
 
 def attach_research(app: FastAPI) -> None:
     browser = BrowserRuntime()
     app.state.browser_runtime = browser
+    search = SearchBackend(browser)
+    app.state.search_backend = search
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -27,8 +30,9 @@ def attach_research(app: FastAPI) -> None:
 
     app.router.lifespan_context = lifespan
     reader = partial(browser.read, allow_captcha_recovery=False) if browser.configured else None
-    app.include_router(create_router(browser_reader=reader))
+    app.include_router(create_router(browser_reader=reader, search_backend=search))
     app.include_router(create_browser_router(browser))
+    app.include_router(create_search_router(search))
 
     @app.middleware("http")
     async def local_ui_security(request: Request, call_next):

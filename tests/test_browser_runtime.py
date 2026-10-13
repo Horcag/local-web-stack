@@ -29,7 +29,7 @@ class Page:
 
 
 def runtime():
-    subject = BrowserRuntime("http://127.0.0.1:9222")
+    subject = BrowserRuntime("http://127.0.0.1:9222", targeted_reads=False)
     page = Page()
     browser = AsyncMock()
     browser.is_connected = lambda: True

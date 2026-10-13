@@ -44,6 +44,11 @@ subtopics; an external agent supplies semantic reformulations and decides when r
 | `research_import_browser_result`, `research_export` | Record actual browser material and export evidence. |
 | `browser_open`, `browser_snapshot`, `browser_action`, `browser_close` | Optional CDP tabs and interactions owned by local-web. |
 
+Search tools and durable discovery use the same [bounded search backend](docs/SEARCH.md).
+The default language is `auto`: Cyrillic queries select Russian; other queries select all languages.
+Pass `domains` and `required_entities` for strict constraints. Results are filtered individually,
+ranked before truncation, and retain provider diagnostics and acquisition evidence.
+
 The repository includes a focused [research skill](.agents/skills/local-web-research/SKILL.md)
 and [agent workflow](docs/AGENT_WORKFLOW.md). Tools do not treat retrieved page instructions as authority.
 
@@ -86,9 +91,11 @@ and successful page recovery is verified before reporting a solve. Unknown puzzl
 | `LOCAL_WEB_RESEARCH_DB` | `work/research.sqlite3` locally; `/app/work/research.sqlite3` in Compose. |
 | `LOCAL_WEB_BROWSER_CDP_URL` | Empty: explicit external-browser handoff/import. |
 | `LOCAL_WEB_BROWSER_CDP_HOST_HEADER` | Empty: preserve the normal Host header; opt in for a private CDP relay. |
-| `LOCAL_WEB_SEARCH_DELAY_SECONDS` | Minimum spacing between research search requests. |
+| `LOCAL_WEB_SEARCH_DELAY_SECONDS` | Minimum spacing between all provider dispatches; default 1 second. |
 | `LOCAL_WEB_RESEARCH_ALLOW_PRIVATE` | Off; enable only for explicitly scoped internal targets/test fixtures. |
-| `LOCAL_WEB_SEARCH_ENGINES` | Existing MCP pool: `mojeek,mwmbl,yandex`. |
+| `LOCAL_WEB_SEARCH_ENGINES` | Shared general search pool: `mojeek,mwmbl,yandex`. |
+| `LOCAL_WEB_SEARCH_CACHE_TTL_SECONDS` | Successful non-degraded searches cached for 900 seconds; zero disables. |
+| `LOCAL_WEB_BROWSER_TARGETED_READS` | True: automatic reads attach only to their own hidden CDP target. |
 | `CRAWL4AI_DOMAIN_DELAY_SECONDS` | Existing per-domain crawl spacing. |
 | `CRAWL4AI_PERSISTENT_CONTEXT` | True; browser profile retained in the data volume. |
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+import httpx
 
 MODULE_PATH = Path(__file__).parents[1] / "mcp" / "local_web_mcp.py"
 SPEC = importlib.util.spec_from_file_location("local_web_mcp", MODULE_PATH)
@@ -31,10 +32,8 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    calls: list[tuple[str, str]] = []
-    get_calls: list[tuple[str, dict[str, str]]] = []
-    get_params: list[dict[str, str]] = []
-    search_results: list[dict[str, str]] = []
+    calls = []
+    search_payload = {}
 
     def __init__(self, **_kwargs):
         pass
@@ -45,151 +44,140 @@ class FakeAsyncClient:
     async def __aexit__(self, *_args):
         return None
 
-    async def get(self, url: str, **kwargs) -> FakeResponse:
-        self.calls.append(("GET", url))
-        self.get_calls.append((url, kwargs.get("headers", {})))
-        self.get_params.append(kwargs.get("params", {}))
-        results = self.search_results or [
-            {
-                "title": "Result",
-                "url": "https://example.test",
-                "content": "Body",
-                "engine": "test",
-            }
-        ]
-        return FakeResponse({"results": list(results)})
+    async def get(self, url, **kwargs):
+        self.calls.append(("GET", url, kwargs))
+        return FakeResponse({"results": []})
 
-    async def post(self, url: str, **_kwargs) -> FakeResponse:
-        self.calls.append(("POST", url))
-        return FakeResponse({"markdown": "# Example"})
+    async def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs))
+        return FakeResponse(
+            self.search_payload if url.endswith("/search") else {"markdown": "# Evidence"}
+        )
 
 
 class LocalWebMcpTests(unittest.TestCase):
-    def setUp(self) -> None:
-        local_web_mcp._SEARCH_CACHE.clear()
+    def setUp(self):
         FakeAsyncClient.calls.clear()
-        FakeAsyncClient.get_calls.clear()
-        FakeAsyncClient.get_params.clear()
-        FakeAsyncClient.search_results = []
+        FakeAsyncClient.search_payload = {
+            "count": 1,
+            "results": [{"title": "Health evidence", "url": "https://nih.gov/report"}],
+            "actual_requests": 1,
+            "attempts": [{"stage": "initial", "status": "completed"}],
+            "requested_engines": "yandex,mojeek",
+            "engines": ["yandex"],
+        }
 
-    def test_streamable_http_is_stateless_json(self) -> None:
+    def test_streamable_http_is_stateless_json(self):
         self.assertTrue(local_web_mcp.mcp.settings.stateless_http)
         self.assertTrue(local_web_mcp.mcp.settings.json_response)
 
-    def test_tools_are_async_to_avoid_blocking_the_mcp_event_loop(self) -> None:
-        self.assertTrue(inspect.iscoroutinefunction(local_web_mcp.web_search))
-        self.assertTrue(inspect.iscoroutinefunction(local_web_mcp.read_url))
-        self.assertTrue(inspect.iscoroutinefunction(local_web_mcp.local_web_health))
+    def test_tools_are_async_to_avoid_blocking_the_mcp_event_loop(self):
+        for fn in (
+            local_web_mcp.web_search,
+            local_web_mcp.read_url,
+            local_web_mcp.local_web_health,
+        ):
+            self.assertTrue(inspect.iscoroutinefunction(fn))
 
-    def test_search_and_read_use_async_http(self) -> None:
+    def test_search_and_read_use_async_shared_service_http(self):
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(local_web_mcp.web_search("example", engines="test"))
-            read = asyncio.run(local_web_mcp.read_url("https://example.test"))
-
-        self.assertEqual(search["count"], 1)
-        self.assertEqual(read["markdown"], "# Example")
+            search = asyncio.run(
+                local_web_mcp.web_search("health evidence", engines="yandex,mojeek")
+            )
+            read = asyncio.run(local_web_mcp.read_url("https://nih.gov/report"))
+        self.assertEqual(search, FakeAsyncClient.search_payload)
+        self.assertEqual(read["markdown"], "# Evidence")
         self.assertEqual(
-            FakeAsyncClient.calls,
+            [(method, url) for method, url, _ in FakeAsyncClient.calls],
             [
-                ("GET", f"{local_web_mcp.SEARXNG_URL}/search"),
+                ("POST", f"{local_web_mcp.CRAWL4AI_URL}/search"),
                 ("POST", f"{local_web_mcp.CRAWL4AI_URL}/md"),
             ],
         )
 
-    def test_searxng_requests_include_the_local_client_ip(self) -> None:
-        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            asyncio.run(local_web_mcp.web_search("example", engines="test"))
-            asyncio.run(local_web_mcp.local_web_health())
-
-        searxng_headers = [
-            headers
-            for url, headers in FakeAsyncClient.get_calls
-            if url.startswith(local_web_mcp.SEARXNG_URL)
-        ]
+    def test_search_forwards_all_explicit_constraints_and_authenticated_route(self):
+        with (
+            patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(local_web_mcp, "CRAWL4AI_API_TOKEN", "fixture-token"),
+        ):
+            asyncio.run(
+                local_web_mcp.web_search(
+                    'health "evidence report"',
+                    max_results=5,
+                    category="science",
+                    language="en",
+                    time_range="month",
+                    engines="mojeek",
+                    page=3,
+                    domains=["nih.gov"],
+                    required_entities=["NIH"],
+                    refine=False,
+                    browser_fallback=False,
+                )
+            )
+        kwargs = FakeAsyncClient.calls[0][2]
+        self.assertEqual(kwargs["headers"], {"Authorization": "Bearer fixture-token"})
         self.assertEqual(
-            searxng_headers,
-            [
-                {"X-Real-IP": local_web_mcp.SEARXNG_CLIENT_IP},
-                {"X-Real-IP": local_web_mcp.SEARXNG_CLIENT_IP},
-            ],
+            kwargs["json"],
+            {
+                "query": 'health "evidence report"',
+                "max_results": 5,
+                "category": "science",
+                "language": "en",
+                "time_range": "month",
+                "engines": "mojeek",
+                "page": 3,
+                "domains": ["nih.gov"],
+                "required_entities": ["NIH"],
+                "refine": False,
+                "browser_fallback": False,
+            },
         )
 
-    def test_categories_is_never_sent_together_with_engines(self) -> None:
-        # SearXNG unions the two parameters, so sending both expands the
-        # category back into its full pool and annuls the engine filter.
+    def test_shared_backend_receipts_and_cache_metadata_survive_mcp(self):
+        FakeAsyncClient.search_payload.update(
+            count=0,
+            results=[],
+            cache_hit=True,
+            actual_requests=0,
+            attempts=[],
+            cached_attempts=[{"stage": "initial", "status": "completed"}],
+            dropped_engines=["mojeek"],
+            search_coverage="unknown",
+            status="degraded",
+            engine_status=[{"engine": "mojeek", "status": "filtered", "attempted": True}],
+        )
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            asyncio.run(local_web_mcp.web_search("example", engines="test"))
-            asyncio.run(local_web_mcp.web_search("example"))
+            result = asyncio.run(local_web_mcp.web_search("health evidence"))
+        self.assertEqual(FakeAsyncClient.search_payload, result)
 
-        explicit, defaulted = FakeAsyncClient.get_params
-        self.assertEqual(explicit["engines"], "test")
-        self.assertNotIn("categories", explicit)
-        self.assertEqual(defaulted["engines"], local_web_mcp.DEFAULT_SEARCH_ENGINES)
-        self.assertNotIn("categories", defaulted)
-
-    def test_categories_is_sent_when_no_engines_are_selected(self) -> None:
+    def test_health_searxng_probe_includes_local_client_ip(self):
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            asyncio.run(local_web_mcp.web_search("example", category="news"))
+            asyncio.run(local_web_mcp.local_web_health())
+        method, url, kwargs = FakeAsyncClient.calls[0]
+        self.assertEqual(method, "GET")
+        self.assertEqual(url, f"{local_web_mcp.SEARXNG_URL}/search")
+        self.assertEqual(kwargs["headers"], {"X-Real-IP": local_web_mcp.SEARXNG_CLIENT_IP})
 
-        params = FakeAsyncClient.get_params[0]
-        self.assertEqual(params["categories"], "news")
-        self.assertNotIn("engines", params)
-
-    def test_reported_engines_are_the_ones_that_answered(self) -> None:
-        FakeAsyncClient.search_results = [
-            {
-                "title": "Body",
-                "url": "https://a.test",
-                "content": "",
-                "engine": "yandex",
-            }
-        ]
+    def test_invalid_page_rejected_before_network(self):
         with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(local_web_mcp.web_search("body", engines="yandex,mojeek"))
+            for page in (0, 101):
+                with self.assertRaises(ValueError):
+                    asyncio.run(local_web_mcp.web_search("health evidence", page=page))
+        self.assertEqual([], FakeAsyncClient.calls)
 
-        self.assertEqual(search["engines"], ["yandex"])
-        self.assertEqual(search["requested_engines"], "yandex,mojeek")
-
-    def test_engine_answering_a_different_query_is_dropped(self) -> None:
-        # Bing's anti-scraping placeholder: a full batch of well-formed results
-        # that has nothing to do with the query.
-        FakeAsyncClient.search_results = [
-            {
-                "title": f"Nokia {i}",
-                "url": "https://nokia.test",
-                "content": "",
-                "engine": "bing",
-            }
-            for i in range(3)
-        ] + [
-            {
-                "title": "Quantum teleportation",
-                "url": "https://arxiv.test",
-                "content": "",
-                "engine": "yandex",
-            }
-        ]
-        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(local_web_mcp.web_search("quantum teleportation experiment"))
-
-        self.assertEqual(search["dropped_engines"], ["bing"])
-        self.assertEqual([item["engine"] for item in search["results"]], ["yandex"])
-
-    def test_a_thin_off_topic_batch_is_kept(self) -> None:
-        # One odd result is normal; only a whole batch with zero overlap is not.
-        FakeAsyncClient.search_results = [
-            {
-                "title": "Nokia",
-                "url": "https://nokia.test",
-                "content": "",
-                "engine": "mojeek",
-            }
-        ]
-        with patch.object(local_web_mcp.httpx, "AsyncClient", FakeAsyncClient):
-            search = asyncio.run(local_web_mcp.web_search("quantum teleportation experiment"))
-
-        self.assertIsNone(search["dropped_engines"])
-        self.assertEqual(search["count"], 1)
+    def test_service_http_error_is_not_returned_as_success(self):
+        original = httpx.AsyncClient
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(503, json={"error": "unavailable"})
+        )
+        with patch.object(
+            local_web_mcp.httpx,
+            "AsyncClient",
+            side_effect=lambda **kwargs: original(transport=transport, **kwargs),
+        ):
+            with self.assertRaises(httpx.HTTPStatusError):
+                asyncio.run(local_web_mcp.web_search("health evidence"))
 
 
 if __name__ == "__main__":

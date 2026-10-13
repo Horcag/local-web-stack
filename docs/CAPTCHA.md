@@ -76,7 +76,7 @@ LOCAL_WEB_BROWSER_CDP_HOST_HEADER=localhost
 
 Start it with docker compose --env-file /absolute/private/captcha.env --profile browser-gateway up -d browser-relay crawl4ai. The Host override is explicit and defaults to empty; Chrome can reject a relay's DNS name. HTTP discovery is bounded and an advertised loopback WebSocket authority is rewritten to the explicitly configured relay authority. This resolves the current browser identity on each attachment, including after browser restarts. Direct WebSocket URLs retain their configured destination.
 
-The private HTTP discovery probe is limited to five seconds and 16 KiB. For endpoints advertising a non-loopback WebSocket address, Playwright retains its normal HTTP discovery behavior and timeout. The relay does not change native browser download guards.
+The private HTTP discovery probe is limited to five seconds and 16 KiB. Automatic reads resolve the current WebSocket and attach only to a newly created hidden target; this avoids waiting for unrelated tabs. Interactive Playwright tools retain their normal discovery behavior for non-loopback advertisements. The relay does not change native browser download guards.
 
 The sidecar mounts only the owner-mode-0600 socket, runs under its numeric owner with all capabilities dropped, and publishes no host port. Browser tools create their own tabs in the connected browser's existing default context. The research collector can use the configured browser reader when crawling is blocked. Disconnecting preserves the browser and unrelated tabs.
 
