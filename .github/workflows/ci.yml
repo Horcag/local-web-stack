@@ -34,7 +34,7 @@ jobs:
         run: uv run --frozen python scripts/quality/check.py
       - name: Retain test case receipt and coverage
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quality-python-${{ matrix.python }}
           path: work/quality/*.xml
@@ -63,7 +63,7 @@ jobs:
           --screenshot "${{ runner.temp }}/local-web-browser-screenshots/desktop.png"
       - name: Retain browser acceptance screenshots
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-ui-smoke
           path: ${{ runner.temp }}/local-web-browser-screenshots/*.png
