@@ -119,4 +119,3 @@ def test_attacker_host_cannot_bypass_origin_boundary():
 def test_direct_reader_rejects_private_initial_target():
     with TestClient(api.app) as client:
         assert client.post("/md", json={"url": "http://127.0.0.1/admin"}).status_code == 422
-
