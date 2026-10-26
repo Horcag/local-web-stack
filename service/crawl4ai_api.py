@@ -233,11 +233,12 @@ async def live() -> dict[str, str]:
 
 
 @app.get("/health/canary", response_class=HTMLResponse)
-async def browser_canary() -> str:
-    return (
+async def browser_canary() -> HTMLResponse:
+    return HTMLResponse(
         "<!doctype html><html><title>Local Web Browser Canary</title><main>"
         "<h1>Local Web Browser Canary</h1><p>This owned fixture verifies browser navigation "
-        "and content extraction without relying on a third-party page.</p></main></html>"
+        "and content extraction without relying on a third-party page.</p></main></html>",
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -337,8 +338,10 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
         "metadata": metadata,
         "captcha": captcha,
     }
-    if assessment["status"] in {"blocked", "partial"} or (
-        assessment["status"] == "failed" and not markdown_str.strip()
+    if request.method == "GET" and (
+        assessment["status"] in {"blocked", "partial"}
+        or assessment["status"] == "failed"
+        and not markdown_str.strip()
     ):
         await _browser_fallback(str(request.url), payload)
     return payload

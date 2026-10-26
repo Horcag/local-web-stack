@@ -81,6 +81,7 @@ def test_health_reflects_failed_dependencies_without_losing_liveness(monkeypatch
         canary = client.get("/health/canary")
         assert canary.status_code == 200
         assert "Local Web Browser Canary" in canary.text
+        assert canary.headers["cache-control"] == "no-store"
 
 
 def test_config_helpers_and_proxy(tmp_path, monkeypatch):

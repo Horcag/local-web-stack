@@ -31,17 +31,21 @@ def test_socks_probe_sends_remote_dns_connect_and_consumes_domain_reply(monkeypa
         closed = asyncio.Event()
 
         async def proxy(reader, writer):
-            captured["greeting"] = await reader.readexactly(3)
-            writer.write(b"\x05\x00")
-            await writer.drain()
-            captured["connect"] = await reader.readexactly(5)
-            size = captured["connect"][-1]
-            captured["host"] = await reader.readexactly(size)
-            captured["port"] = await reader.readexactly(2)
-            writer.write(b"\x05\x00\x00\x03\x03ip1\x23\x45")
-            await writer.drain()
-            await reader.read()
-            closed.set()
+            try:
+                captured["greeting"] = await reader.readexactly(3)
+                writer.write(b"\x05\x00")
+                await writer.drain()
+                captured["connect"] = await reader.readexactly(5)
+                size = captured["connect"][-1]
+                captured["host"] = await reader.readexactly(size)
+                captured["port"] = await reader.readexactly(2)
+                writer.write(b"\x05\x00\x00\x03\x03ip1\x23\x45")
+                await writer.drain()
+                await reader.read()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+                closed.set()
 
         server = await asyncio.start_server(proxy, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]

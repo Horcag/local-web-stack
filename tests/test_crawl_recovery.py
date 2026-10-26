@@ -82,6 +82,20 @@ def test_post_is_never_retried_or_replayed_in_browser(monkeypatch):
     runtime.read.assert_not_awaited()
 
 
+def test_blocked_post_content_is_never_replaced_with_browser_get(monkeypatch):
+    runtime = SimpleNamespace(configured=True, read=AsyncMock())
+    crawl = SimpleNamespace(
+        success=True, markdown="Verify you are human", status_code=403, metadata={}
+    )
+    monkeypatch.setattr(api, "_crawl", AsyncMock(return_value=crawl))
+    monkeypatch.setattr(api.app.state, "browser_runtime", runtime)
+    with TestClient(api.app) as client:
+        response = client.post("/md", json={"url": URL, "method": "POST"})
+    assert response.status_code == 200
+    assert response.json()["assessment"]["status"] == "blocked"
+    runtime.read.assert_not_awaited()
+
+
 def test_primary_deadline_cancels_crawl_and_releases_profile_lock(monkeypatch):
     async def run():
         cancelled = []
