@@ -65,7 +65,16 @@ async def execute_crawl(
                         break
                     retryable = transient(error)
                 except Exception as exc:
+                    if isinstance(exc, (ValueError, TypeError, AttributeError)):
+                        receipt["reason"] = "crawler_configuration_error"
+                        receipt["exception_type"] = type(exc).__name__
+                        receipt["attempts"].append({"status": "failed", "transient": False})
+                        break
                     retryable = transient(exc)
+                    receipt["exception_type"] = (
+                        type(exc).__name__ if type(exc).__module__ == "builtins" else "ReaderError"
+                    )
+                receipt["failure_category"] = "transport_error" if retryable else "reader_error"
                 receipt["attempts"].append({"status": "failed", "transient": retryable})
                 if not retryable:
                     break

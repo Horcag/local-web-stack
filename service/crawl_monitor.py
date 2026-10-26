@@ -16,6 +16,7 @@ class CrawlMonitor:
         self.lock = lock
         self.task: asyncio.Task | None = None
         self.last_success: float | None = None
+        self.last_fresh_read: float | None = None
         self.last_check: float | None = None
         self.failures = 0
 
@@ -23,8 +24,15 @@ class CrawlMonitor:
         self.last_success = time.monotonic()
         self.failures = 0
 
+    def observe_fresh_read(self) -> None:
+        # A real navigation can prove activity, but cannot erase failed canary checks.
+        self.last_fresh_read = time.monotonic()
+
     def snapshot(self) -> dict[str, Any]:
-        age = None if self.last_success is None else time.monotonic() - self.last_success
+        successes = [
+            stamp for stamp in (self.last_success, self.last_fresh_read) if stamp is not None
+        ]
+        age = None if not successes else time.monotonic() - max(successes)
         status = "starting" if age is None else "healthy"
         if self.failures >= 2 or age is not None and age > 180:
             status = "unhealthy"

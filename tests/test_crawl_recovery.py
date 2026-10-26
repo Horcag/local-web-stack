@@ -152,3 +152,37 @@ def test_cached_reads_do_not_hide_failed_browser_canary(monkeypatch):
         assert client.post("/md", json={"url": URL}).status_code == 200
     assert monitor.failures == 2 and monitor.last_success is None
     assert monitor.snapshot()["status"] == "unhealthy"
+
+
+def test_fresh_reads_prove_activity_without_erasing_failed_canary(monkeypatch):
+    from service.crawl_monitor import CrawlMonitor
+
+    monitor = CrawlMonitor(AsyncMock(), asyncio.Lock())
+    monitor.failures = 1
+    monitor.last_success = 1
+    monkeypatch.setattr(api.app.state, "crawl_monitor", monitor, raising=False)
+    monkeypatch.setattr(monitor, "start", lambda: None)
+    monkeypatch.setattr(api, "_crawl", AsyncMock(return_value=result(cache_status="miss")))
+    with TestClient(api.app) as client:
+        assert client.post("/md", json={"url": URL}).status_code == 200
+    assert monitor.failures == 1 and monitor.last_success == 1
+    assert monitor.snapshot()["status"] == "healthy"
+    monitor.failures = 2
+    assert monitor.snapshot()["status"] == "unhealthy"
+
+
+@pytest.mark.parametrize("failure", [ValueError("secret config"), TypeError("secret type")])
+def test_configuration_failure_is_terminal_and_sanitized(monkeypatch, failure):
+    runtime = SimpleNamespace(configured=True, read=AsyncMock())
+    crawl = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(api, "_crawl", crawl)
+    monkeypatch.setattr(api.app.state, "browser_runtime", runtime)
+    with TestClient(api.app) as client:
+        response = client.post("/md", json={"url": URL})
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["reason"] == "crawler_configuration_error"
+    assert detail["recovery"]["exception_type"] == type(failure).__name__
+    assert "secret" not in str(detail)
+    runtime.read.assert_not_awaited()
+    crawl.assert_awaited_once()

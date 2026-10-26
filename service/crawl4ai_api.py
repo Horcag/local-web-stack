@@ -270,12 +270,17 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
             "next_action": "browser",
             "recovery": recovery,
         }
-        if request.method == "GET" and recovery["reason"] != "robots_denied":
+        if request.method == "GET" and recovery["reason"] not in {
+            "robots_denied",
+            "crawler_configuration_error",
+        }:
             await _browser_fallback(str(request.url), payload)
         if payload.get("source") == "browser-fallback":
             return payload
         raise HTTPException(
-            {"crawl_timeout": 504, "robots_denied": 403}.get(recovery["reason"], 502),
+            {"crawl_timeout": 504, "robots_denied": 403, "crawler_configuration_error": 503}.get(
+                recovery["reason"], 502
+            ),
             detail={
                 "reason": recovery["reason"],
                 "recovery": recovery,
@@ -299,6 +304,15 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
         status_code or 200,
         captcha,
     )
+    monitor = getattr(app.state, "crawl_monitor", None)
+    if (
+        monitor is not None
+        and getattr(result, "cache_status", None) == "miss"
+        and assessment["status"] == "read"
+        and status_code is not None
+        and 200 <= status_code < 300
+    ):
+        monitor.observe_fresh_read()
     payload = {
         "url": str(request.url),
         "cache_mode": request.cache_mode,
