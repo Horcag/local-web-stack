@@ -1,0 +1,19 @@
+# Install service/stack_watchdog.py as ~/.local/libexec/local-web-watchdog.py.
+# Install this unit as ~/.config/systemd/user/local-web-watchdog.service.
+[Unit]
+Description=Bounded local-web-stack health watchdog
+After=default.target
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/libexec/local-web-watchdog.py
+Restart=on-failure
+RestartSec=20
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,7 +29,7 @@ class Page:
 
 
 def runtime():
-    subject = BrowserRuntime("http://127.0.0.1:9222")
+    subject = BrowserRuntime("http://127.0.0.1:9222", targeted_reads=False)
     page = Page()
     browser = AsyncMock()
     browser.is_connected = lambda: True
@@ -45,6 +46,25 @@ def test_unconfigured_browser_is_explicit_and_no_launch():
     with pytest.raises(HTTPException) as exc:
         asyncio.run(subject.open("https://example.com"))
     assert exc.value.status_code == 503
+
+
+def test_cdp_connection_preserves_native_browser_download_settings(monkeypatch):
+    import playwright.async_api
+
+    borrowed = AsyncMock()
+    driver = SimpleNamespace(
+        chromium=SimpleNamespace(connect_over_cdp=AsyncMock(return_value=borrowed)),
+        stop=AsyncMock(),
+    )
+    manager = SimpleNamespace(start=AsyncMock(return_value=driver))
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: manager)
+    subject = BrowserRuntime("http://127.0.0.1:9226")
+    asyncio.run(subject._connect())
+    driver.chromium.connect_over_cdp.assert_awaited_once_with(
+        "http://127.0.0.1:9226", timeout=15000, no_defaults=True
+    )
+    asyncio.run(subject.close())
+    borrowed.close.assert_not_awaited()
 
 
 def test_collect_closes_only_task_tab_and_never_borrowed_browser():

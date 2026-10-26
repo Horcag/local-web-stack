@@ -49,7 +49,10 @@ def test_reader_failure_is_error_not_success():
         assert client.post("/md", json={"url": "https://example.com"}).status_code == 502
 
 
-def test_dashboard_assets_and_csrf_boundary():
+def test_dashboard_assets_and_csrf_boundary(monkeypatch):
+    monkeypatch.setattr(
+        api, "readiness", AsyncMock(return_value={"status": "healthy", "checks": {}})
+    )
     with TestClient(api.app) as client:
         assert client.get("/").status_code == 200
         assert client.get("/app.js").status_code == 200
@@ -62,6 +65,23 @@ def test_dashboard_assets_and_csrf_boundary():
         assert denied.status_code == 403
         assert client.get("/health").json()["status"] == "healthy"
         assert "content-security-policy" not in client.get("/docs").headers
+
+
+def test_health_reflects_failed_dependencies_without_losing_liveness(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "readiness",
+        AsyncMock(return_value={"status": "degraded", "checks": {"dns": {"status": "unhealthy"}}}),
+    )
+    with TestClient(api.app) as client:
+        response = client.get("/health")
+        assert response.status_code == 503
+        assert response.json()["checks"]["dns"]["status"] == "unhealthy"
+        assert client.get("/live").json()["status"] == "alive"
+        canary = client.get("/health/canary")
+        assert canary.status_code == 200
+        assert "Local Web Browser Canary" in canary.text
+        assert canary.headers["cache-control"] == "no-store"
 
 
 def test_config_helpers_and_proxy(tmp_path, monkeypatch):

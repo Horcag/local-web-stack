@@ -25,8 +25,12 @@ def register_research_tools(mcp: Any, api_url: str, headers: Callable) -> None:
         max_pages: int = 2,
         max_sources: int = 80,
         max_requests: int = 120,
-        language: str = "all",
+        language: str = "auto",
         domains: list[str] | None = None,
+        required_entities: list[str] | None = None,
+        engines: str = "",
+        refine: bool = True,
+        browser_fallback: bool = True,
     ) -> dict:
         """Create a durable bounded research run. Variants are explicit alternative queries."""
         return await request(
@@ -41,6 +45,10 @@ def register_research_tools(mcp: Any, api_url: str, headers: Callable) -> None:
                 "max_requests": max_requests,
                 "language": language,
                 "domains": domains or [],
+                "required_entities": required_entities or [],
+                "engines": engines,
+                "refine": refine,
+                "browser_fallback": browser_fallback,
             },
             "POST",
         )

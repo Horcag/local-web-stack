@@ -1,6 +1,7 @@
 """Research, browser and static dashboard wiring for the Crawl4AI service."""
 
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 import os
 
@@ -11,21 +12,32 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from service.browser import BrowserRuntime, create_browser_router
 from service.research import create_router
+from service.search import SearchBackend, create_search_router
 
 
 def attach_research(app: FastAPI) -> None:
     browser = BrowserRuntime()
+    app.state.browser_runtime = browser
+    search = SearchBackend(browser)
+    app.state.search_backend = search
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        monitor = getattr(app.state, "crawl_monitor", None)
+        if monitor is not None:
+            monitor.start()
         try:
             yield
         finally:
+            if monitor is not None:
+                await monitor.close()
             await browser.close()
 
     app.router.lifespan_context = lifespan
-    app.include_router(create_router(browser_reader=browser.read if browser.configured else None))
+    reader = partial(browser.read, allow_captcha_recovery=False) if browser.configured else None
+    app.include_router(create_router(browser_reader=reader, search_backend=search))
     app.include_router(create_browser_router(browser))
+    app.include_router(create_search_router(search))
 
     @app.middleware("http")
     async def local_ui_security(request: Request, call_next):

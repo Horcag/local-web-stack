@@ -42,29 +42,68 @@ def canonical_url(url: str) -> str:
     return urlunsplit((p.scheme.lower(), host, p.path or "/", urlencode(query), ""))
 
 
-def assess_content(markdown: str, title: str = "", status_code: int = 200) -> dict:
+_CHALLENGE_DIRECTIVES = (
+    "verify you are human",
+    "checking your browser",
+    "just a moment",
+    "attention required",
+    "enable javascript and cookies",
+    "complete the captcha",
+    "security verification",
+    "подтвердите, что вы человек",
+    "please confirm that you are not a robot",
+    "confirm that you are not a robot",
+    "are you not a robot",
+    "подтвердите, что вы не робот",
+    "вы не робот",
+)
+
+
+def _is_gate_directive(value: str, directives: tuple[str, ...]) -> bool:
+    normalized = " ".join(value.lower().split()).strip(" .!?…:#")
+    return normalized in directives
+
+
+def _primary_heading(markdown: str) -> str:
+    for line in markdown.splitlines():
+        line = line.strip()
+        if not line or re.fullmatch(r"!?\[[^\]]*\]\([^\n]+\)", line):
+            continue
+        heading = re.fullmatch(r"#{1,6}\s+(.+?)(?:\s+#+)?", line)
+        return heading.group(1) if heading else line
+    return ""
+
+
+def is_captcha_gate(markdown: str, title: str = "") -> bool:
+    """Match challenge directives, never CAPTCHA mentions inside an article."""
+    if any(
+        _is_gate_directive(value, _CHALLENGE_DIRECTIVES)
+        for value in (title, _primary_heading(markdown))
+    ):
+        return True
+    # Product branding alone also appears on ordinary documentation pages.
+    return _is_gate_directive(title, ("smartcaptcha", "yandex smartcaptcha")) and any(
+        _is_gate_directive(line, ("i'm not a robot", "я не робот", "press to continue"))
+        for line in markdown.splitlines()
+    )
+
+
+def assess_content(
+    markdown: str, title: str = "", status_code: int = 200, captcha: dict | None = None
+) -> dict:
+    if captcha and (
+        captcha.get("status") in {"unexpected_page", "challenge_changed"}
+        or captcha.get("challenge_observed")
+        and captcha.get("status") != "solved"
+    ):
+        return {"status": "blocked", "reasons": ["captcha_target_unverified"]}
     status_code = status_code or 200
     text = markdown.strip()
-    heading = title.strip().lower()
-    sample = text[:1500].lower()
-    gate = (
-        "verify you are human",
-        "checking your browser",
-        "just a moment",
-        "access denied",
-        "attention required",
-        "enable javascript and cookies",
-        "complete the captcha",
-        "security verification",
-        "подтвердите, что вы человек",
-    )
     reasons = []
     if status_code in {401, 403, 429}:
         reasons.append("http_gate_" + str(status_code))
-    # A matching gate title is strong evidence; short page text must be directive.
-    if any(phrase in heading for phrase in gate) or (
-        len(text) < 1800
-        and any(sample.startswith(phrase) or sample.startswith("# " + phrase) for phrase in gate)
+    if is_captcha_gate(text, title) or any(
+        _is_gate_directive(value, ("access denied",)) for value in (title, _primary_heading(text))
     ):
         reasons.append("challenge_or_access_gate")
     if reasons:

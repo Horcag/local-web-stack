@@ -1,110 +1,99 @@
 import asyncio
 import os
 import re
-import time
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
 from .content import assess_content, canonical_url
-
-
-_SEARCH_LOCK = asyncio.Lock()
-_LAST_SEARCH = 0.0
-_search_clock = time.monotonic
-
-
-async def paced_search(client, url, **kwargs):
-    """Serialize starts across runs in this service process, without SQL locks."""
-    global _LAST_SEARCH
-    try:
-        delay = min(60.0, max(0.0, float(os.environ.get("LOCAL_WEB_SEARCH_DELAY_SECONDS", "1"))))
-    except ValueError:
-        delay = 1.0
-    if not delay:
-        return await client.get(url, **kwargs)
-    async with _SEARCH_LOCK:
-        await asyncio.sleep(max(0.0, delay - (_search_clock() - _LAST_SEARCH)))
-        _LAST_SEARCH = _search_clock()
-        return await client.get(url, **kwargs)
+from service.search_models import SearchRequest
 
 
 class Runner:
-    def __init__(self, store, browser_reader=None):
+    def __init__(self, store, browser_reader=None, search_backend=None):
         self.store = store
         self.browser_reader = browser_reader
+        if search_backend is None:
+            from service.search import default_backend
+
+            search_backend = default_backend()
+        self.search_backend = search_backend
 
     async def discover(self, run_id, request):
         run = self.store.run(run_id)
         queries = list(dict.fromkeys([*run["queries"], *request.queries]))[: run["max_queries"]]
         pages = min(request.pages or run["max_pages"], run["max_pages"])
         added = 0
-        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-            for query in queries:
-                search_query = query
-                if run.get("domains"):
-                    search_query += " (" + " OR ".join("site:" + d for d in run["domains"]) + ")"
-                for page in range(1, pages + 1):
-                    reservation = self.store.reserve(run_id, query, page)
-                    if not reservation:
-                        continue
-                    receipt = {}
-                    try:
-                        response = await paced_search(
-                            client,
-                            os.environ.get("SEARXNG_URL", "http://127.0.0.1:8088").rstrip("/")
-                            + "/search",
-                            params={
-                                "q": search_query,
-                                "format": "json",
-                                "pageno": page,
-                                "language": run.get("language", "all"),
-                            },
-                            headers={"X-Real-IP": "127.0.0.1"},
-                        )
-                        response.raise_for_status()
-                        payload = response.json()
-                        results = payload.get("results", [])
-                        receipt = {
-                            "result_count": len(results),
-                            "engine_errors": payload.get("unresponsive_engines", []),
-                            "number_of_results": payload.get("number_of_results"),
-                        }
-                        for result in results:
-                            try:
-                                source, created = self.store.add_source(
-                                    run_id,
-                                    result.get("url", ""),
-                                    result.get("title", ""),
-                                    {
-                                        "kind": "search",
-                                        "query": query,
-                                        "page": page,
-                                        "engine": result.get("engine"),
-                                        "engines": result.get("engines", []),
-                                        "snippet": result.get("content", ""),
-                                    },
-                                    return_created=True,
-                                )
-                                added += int(created)
-                            except ValueError:
-                                continue
-                        if not results:
-                            break
-                    except asyncio.CancelledError:
-                        receipt = {"error": "cancelled", "result_count": 0}
-                        raise
-                    except Exception as exc:
-                        receipt = {"error": str(exc), "result_count": 0}
-                    finally:
-                        self.store.search_result(
-                            run_id, query, page, receipt, reservation=reservation
-                        )
+        for query in queries:
+            for page in range(1, pages + 1):
+                reservation = self.store.reserve(run_id, query, page)
+                if not reservation:
+                    continue
+                receipt = {}
+                try:
+                    payload = await self.search_backend.search(
+                        SearchRequest(
+                            query=query,
+                            page=page,
+                            max_results=20,
+                            language=run.get("language", "auto"),
+                            domains=run.get("domains", []),
+                            required_entities=run.get("required_entities", []),
+                            engines=run.get("engines", ""),
+                            refine=run.get("refine", True),
+                            browser_fallback=run.get("browser_fallback", True),
+                        ),
+                        admit_attempt=lambda: self.store.admit_search_attempt(
+                            run_id, query, page, reservation
+                        ),
+                    )
+                    results = payload.get("results", [])
+                    receipt = {k: v for k, v in payload.items() if k != "results"}
+                    receipt["provider_attempts"] = receipt.pop("attempts", [])
+                    receipt.update(
+                        result_count=len(results),
+                        engine_errors=payload.get("unresponsive_engines", []),
+                    )
+                    for result in results:
+                        try:
+                            source, created = self.store.add_source(
+                                run_id,
+                                result.get("url", ""),
+                                result.get("title", ""),
+                                {
+                                    "kind": "search",
+                                    "query": query,
+                                    "page": page,
+                                    "engine": result.get("engine"),
+                                    "engines": result.get("engines", []),
+                                    "snippet": result.get("content", ""),
+                                    "effective_query": payload.get("effective_query"),
+                                    "effective_language": payload.get("effective_language"),
+                                    "acquisition": result.get("acquisition"),
+                                    "quality_score": result.get("quality_score"),
+                                    "quality_reasons": result.get("reasons"),
+                                    "browser_provenance": result.get("provenance"),
+                                },
+                                return_created=True,
+                            )
+                            added += int(created)
+                        except ValueError:
+                            continue
+                    if not results:
+                        break
+                except asyncio.CancelledError:
+                    receipt = {"error": "cancelled", "result_count": 0}
+                    raise
+                except Exception as exc:
+                    receipt = {"error": str(exc), "result_count": 0}
+                finally:
+                    self.store.search_result(run_id, query, page, receipt, reservation=reservation)
         return {"discovered_results": added, "coverage": coverage(self.store, run_id)}
 
     async def collect(self, run_id, batch_size):
         completed = []
-        async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
+        # Allow page navigation, bounded CAPTCHA recovery and the browser fallback.
+        async with httpx.AsyncClient(timeout=135, follow_redirects=False) as client:
             for _ in range(batch_size):
                 claimed = self.store.claim(run_id)
                 if not claimed:
@@ -171,12 +160,26 @@ class Runner:
             raw_status if isinstance(raw_status, int) and 100 <= raw_status <= 599 else 200
         )
         result = dict(
-            assess_content(markdown, title, status_code),
+            assess_content(markdown, title, status_code, payload.get("captcha")),
             markdown=markdown,
             title=title,
             method=method,
             error=payload.get("error"),
         )
+        browser_fallback = payload.get("browser_fallback") or {}
+        if not isinstance(browser_fallback, dict):
+            browser_fallback = {}
+        if browser_fallback.get("status") == "accepted":
+            result["method"] = payload.get("method") or method
+            result["provenance"] = [
+                *source.get("provenance", []),
+                {
+                    "kind": "browser",
+                    "method": result["method"],
+                    "url": browser_fallback.get("url"),
+                    "initial_captcha": payload.get("initial_captcha"),
+                },
+            ]
         if payload.get("truncated") and result["status"] == "read":
             result.update(status="partial", reasons=["reader_truncated"])
         fallback_needed = result["status"] in {"blocked", "partial"} or (
@@ -186,7 +189,13 @@ class Runner:
         )
         if fallback_needed:
             fallback_error = None
-            if self.browser_reader and self.store.reserve(source["run_id"]):
+            # /md already owns the bounded browser fallback. A rejected receipt
+            # must not start another read and renew the CAPTCHA attempt budget.
+            if (
+                "browser_fallback" not in payload
+                and self.browser_reader
+                and self.store.reserve(source["run_id"])
+            ):
                 try:
                     browser = await self.browser_reader(source["url"])
                     if browser:
@@ -200,6 +209,7 @@ class Runner:
                                 browser.get("markdown", ""),
                                 browser.get("title", title),
                                 browser.get("status_code") or 200,
+                                browser.get("captcha"),
                             ),
                             markdown=browser.get("markdown", ""),
                             title=browser.get("title", title),
@@ -302,7 +312,13 @@ def coverage(store, run_id):
         "attempted": sum(s["attempts"] > 0 for s in sources),
         "search_coverage": "unknown",
         "forum_coverage": "bounded_discovered_pages_only",
-        "search_requests": len(searches),
+        "search_requests": sum(
+            s["data"].get(
+                "total_dispatches", s["data"].get("actual_requests", s["data"].get("dispatches", 1))
+            )
+            for s in searches
+        ),
+        "search_query_pages": len(searches),
         "searches": searches,
         "engine_errors": [e for s in searches for e in s["data"].get("engine_errors", [])],
         "requests_used": run["requests_used"],

@@ -6,7 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from service.research.models import RunRequest
-from service.research.runner import coverage, paced_search
+from service.research.runner import coverage
+from service.search import SearchBackend
+from types import SimpleNamespace
 from service.research.store import Store
 
 
@@ -45,23 +47,22 @@ class ReceiptTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(1, result["content_duplicates"])
 
     async def test_shared_search_pacing(self):
-        class Client:
-            async def get(self, url, **kwargs):
-                return url
+        now = [10.2]
+        delays = []
+        original_sleep = asyncio.sleep
 
         async def sleep(delay):
             delays.append(delay)
+            now[0] += delay
+            await original_sleep(0)
 
-        delays = []
+        backend = SearchBackend()
+        backend._last_start = 10
         with (
             patch.dict("os.environ", {"LOCAL_WEB_SEARCH_DELAY_SECONDS": "1"}),
-            patch("service.research.runner._LAST_SEARCH", 10),
-            patch("service.research.runner._search_clock", return_value=10.2),
-            patch("service.research.runner.asyncio.sleep", sleep),
+            patch("service.search.time", SimpleNamespace(monotonic=lambda: now[0])),
+            patch("service.search.asyncio.sleep", sleep),
         ):
-            results = await asyncio.gather(
-                paced_search(Client(), "one"), paced_search(Client(), "two")
-            )
-        self.assertEqual(["one", "two"], results)
+            await asyncio.gather(backend._pace(), backend._pace())
         self.assertAlmostEqual(0.8, delays[0])
         self.assertAlmostEqual(1.0, delays[1])

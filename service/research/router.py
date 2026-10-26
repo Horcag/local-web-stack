@@ -9,7 +9,7 @@ from .runner import Runner, coverage
 from .store import Store
 
 
-def create_router(browser_reader=None, db_path=None):
+def create_router(browser_reader=None, db_path=None, search_backend=None):
     router = APIRouter(prefix="/research", tags=["research"])
     # Initialize lazily so importing the service never writes its runtime database.
     storage = None
@@ -47,7 +47,7 @@ def create_router(browser_reader=None, db_path=None):
     @router.post("/runs/{run_id}/discover")
     async def discover(run_id: str, request: DiscoverRequest = DiscoverRequest()):
         run(run_id)
-        return await Runner(store(), browser_reader).discover(run_id, request)
+        return await Runner(store(), browser_reader, search_backend).discover(run_id, request)
 
     @router.post("/runs/{run_id}/collect")
     async def collect(run_id: str, request: CollectRequest = CollectRequest()):

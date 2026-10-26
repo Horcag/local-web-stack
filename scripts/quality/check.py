@@ -41,6 +41,8 @@ def main() -> None:
         "-m",
         "pytest",
         "-v",
+        "-o",
+        "faulthandler_timeout=60",
         "--cov=service",
         "--cov=mcp",
         "--cov-report=term-missing",

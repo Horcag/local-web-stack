@@ -7,13 +7,15 @@ handles pages requiring interaction. A small dashboard keeps runs, source status
 ## Start
 
 ```sh
-docker compose up -d --build
+bash scripts/up.sh
 ```
 
 Open **http://127.0.0.1:11235/** for the research workspace. The same service exposes
 [OpenAPI](http://127.0.0.1:11235/docs); the MCP endpoint is `http://127.0.0.1:8765/mcp`
 (Streamable HTTP). Windows helpers remain available in `scripts/up.ps1` and `scripts/verify.ps1`.
 Docker needs an amd64 Linux environment; the image installs Google Chrome, Chromium and Xvfb.
+Linux/WSL startup also enables the host watchdog. See [health and recovery](docs/RECOVERY.md)
+for probes, restart limits, DNS configuration and deployments without systemd.
 
 ## Research workflow
 
@@ -44,6 +46,11 @@ subtopics; an external agent supplies semantic reformulations and decides when r
 | `research_import_browser_result`, `research_export` | Record actual browser material and export evidence. |
 | `browser_open`, `browser_snapshot`, `browser_action`, `browser_close` | Optional CDP tabs and interactions owned by local-web. |
 
+Search tools and durable discovery use the same [bounded search backend](docs/SEARCH.md).
+The default language is `auto`: Cyrillic queries select Russian; other queries select all languages.
+Pass `domains` and `required_entities` for strict constraints. Results are filtered individually,
+ranked before truncation, and retain provider diagnostics and acquisition evidence.
+
 The repository includes a focused [research skill](.agents/skills/local-web-research/SKILL.md)
 and [agent workflow](docs/AGENT_WORKFLOW.md). Tools do not treat retrieved page instructions as authority.
 
@@ -62,9 +69,21 @@ to an explicitly chosen reachable Chrome CDP endpoint. The adapter creates and c
 uses the selected browser context, and disconnects on shutdown without closing the browser or existing
 tabs. Docker cannot reach a host browser through container `127.0.0.1`; configure the route deliberately.
 Do not expose a debugging endpoint publicly. A configured endpoint does not prove connectivity.
+The optional `browser-gateway` Compose profile connects a private host Unix socket to the CDP
+browser route. See [CAPTCHA recovery](docs/CAPTCHA.md) for its socket and Host-header configuration.
+
+With that route configured, `read_url` automatically tries the existing browser profile when crawling
+returns a blocked, partial or empty failed page. This fallback has a 30-second deadline and makes no
+additional CAPTCHA model calls. It accepts only a verified target URL, a known successful HTTP status
+and complete readable content. Responses preserve the initial gate receipt alongside the current
+browser result and identify the acquisition method. A rejected fallback stays pending for browser work.
 
 The crawler's persistent Docker profile is separate from a user's desktop Chrome profile.
 Patchright/headed Chrome is not a guarantee against CAPTCHA or access restrictions.
+
+Optional [CAPTCHA recovery](docs/CAPTCHA.md) sends cropped text-image or ordered-click challenges
+to one explicitly configured multimodal API. Browser actions stay local, attempts are bounded,
+and successful page recovery is verified before reporting a solve. Unknown puzzles remain blocked.
 
 ## Configuration and data
 
@@ -73,9 +92,12 @@ Patchright/headed Chrome is not a guarantee against CAPTCHA or access restrictio
 | `LOCAL_WEB_ALLOWED_HOSTS` | Localhost and named Compose routes; configure explicit reverse-proxy hosts. |
 | `LOCAL_WEB_RESEARCH_DB` | `work/research.sqlite3` locally; `/app/work/research.sqlite3` in Compose. |
 | `LOCAL_WEB_BROWSER_CDP_URL` | Empty: explicit external-browser handoff/import. |
-| `LOCAL_WEB_SEARCH_DELAY_SECONDS` | Minimum spacing between research search requests. |
+| `LOCAL_WEB_BROWSER_CDP_HOST_HEADER` | Empty: preserve the normal Host header; opt in for a private CDP relay. |
+| `LOCAL_WEB_SEARCH_DELAY_SECONDS` | Minimum spacing between all provider dispatches; default 1 second. |
 | `LOCAL_WEB_RESEARCH_ALLOW_PRIVATE` | Off; enable only for explicitly scoped internal targets/test fixtures. |
-| `LOCAL_WEB_SEARCH_ENGINES` | Existing MCP pool: `mojeek,mwmbl,yandex`. |
+| `LOCAL_WEB_SEARCH_ENGINES` | Shared general search pool: `mojeek,mwmbl,yandex`. |
+| `LOCAL_WEB_SEARCH_CACHE_TTL_SECONDS` | Successful non-degraded searches cached for 900 seconds; zero disables. |
+| `LOCAL_WEB_BROWSER_TARGETED_READS` | True: automatic reads attach only to their own hidden CDP target. |
 | `CRAWL4AI_DOMAIN_DELAY_SECONDS` | Existing per-domain crawl spacing. |
 | `CRAWL4AI_PERSISTENT_CONTEXT` | True; browser profile retained in the data volume. |
 

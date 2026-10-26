@@ -183,6 +183,9 @@ class Store:
                 reservation = uuid.uuid4().hex
                 metadata = {
                     "attempts": attempts + 1,
+                    "total_dispatches": prior.get(
+                        "total_dispatches", prior.get("dispatches", prior.get("actual_requests", 0))
+                    ),
                     "lease": time.time() + 300,
                     "token": reservation,
                     "reserved_at": time.time(),
@@ -211,6 +214,41 @@ class Store:
                 "UPDATE searches SET status=?,data=? WHERE run_id=? AND query=? AND page=?",
                 ("finished", json.dumps(metadata), run_id, query, page),
             )
+
+    def admit_search_attempt(self, run_id, query, page, reservation):
+        """Keep additional dispatches inside the current query lease and run budget."""
+        with self.connection() as db:
+            row = db.execute(
+                "SELECT status,data FROM searches WHERE run_id=? AND query=? AND page=?",
+                (run_id, query, page),
+            ).fetchone()
+            if not row:
+                return False
+            metadata = json.loads(row["data"])
+            if (
+                row["status"] != "running"
+                or metadata.get("token") != reservation
+                or metadata.get("lease", 0) <= time.time()
+            ):
+                return False
+            dispatches = metadata.get("dispatches", 0)
+            run = json.loads(
+                db.execute("SELECT data FROM runs WHERE id=?", (run_id,)).fetchone()["data"]
+            )
+            if dispatches >= 3 or run["content_chars"] >= run["max_content_chars"]:
+                return False
+            if dispatches:
+                if run["requests_used"] >= run["max_requests"]:
+                    return False
+                run["requests_used"] += 1
+                db.execute("UPDATE runs SET data=? WHERE id=?", (json.dumps(run), run_id))
+            metadata["dispatches"] = dispatches + 1
+            metadata["total_dispatches"] = metadata.get("total_dispatches", 0) + 1
+            db.execute(
+                "UPDATE searches SET data=? WHERE run_id=? AND query=? AND page=?",
+                (json.dumps(metadata), run_id, query, page),
+            )
+            return True
 
     def searches(self, run_id):
         with self.connection() as db:
