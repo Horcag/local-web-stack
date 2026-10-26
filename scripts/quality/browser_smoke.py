@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 
 import httpx
 import uvicorn
@@ -116,6 +117,22 @@ def fixture_app():
         )
 
     return app
+
+
+async def fixture_search(request, admit_attempt=None):
+    """UI fixtures use loopback URLs; production search correctly rejects private results."""
+    if admit_attempt is not None and not admit_attempt():
+        return {"results": [], "attempts": [], "actual_requests": 0}
+    async with httpx.AsyncClient(timeout=5) as client:
+        response = await client.get(
+            os.environ["SEARXNG_URL"] + "/search", params={"q": request.query}
+        )
+        response.raise_for_status()
+        return {
+            **response.json(),
+            "attempts": [{"stage": "fixture", "status": "completed"}],
+            "actual_requests": 1,
+        }
 
 
 async def json_request(client, method, url, **kwargs):
@@ -323,7 +340,11 @@ def main():
 
         app = FastAPI(lifespan=lifespan)
         app.include_router(
-            create_router(browser_reader=runtime.read, db_path=scratch / "research.db")
+            create_router(
+                browser_reader=runtime.read,
+                db_path=scratch / "research.db",
+                search_backend=SimpleNamespace(search=fixture_search),
+            )
         )
         app.include_router(create_browser_router(runtime))
         app.mount("/", StaticFiles(directory=ROOT / "service/static", html=True))

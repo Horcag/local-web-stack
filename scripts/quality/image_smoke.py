@@ -27,8 +27,12 @@ def main() -> None:
         )
         with (
             patch.object(api, "_crawl", AsyncMock(return_value=result)),
+            patch.object(
+                api, "readiness", AsyncMock(return_value={"status": "healthy", "checks": {}})
+            ),
             TestClient(api.app) as client,
         ):
+            assert client.get("/live").json()["status"] == "alive"
             assert client.get("/health").json()["status"] == "healthy"
             dashboard = client.get("/")
             assert dashboard.status_code == 200
