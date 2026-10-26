@@ -78,6 +78,9 @@ def test_health_reflects_failed_dependencies_without_losing_liveness(monkeypatch
         assert response.status_code == 503
         assert response.json()["checks"]["dns"]["status"] == "unhealthy"
         assert client.get("/live").json()["status"] == "alive"
+        canary = client.get("/health/canary")
+        assert canary.status_code == 200
+        assert "Local Web Browser Canary" in canary.text
 
 
 def test_config_helpers_and_proxy(tmp_path, monkeypatch):

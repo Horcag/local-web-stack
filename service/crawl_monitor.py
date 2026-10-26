@@ -2,10 +2,12 @@
 
 import asyncio
 from contextlib import suppress
+import os
 import time
 from typing import Any, Awaitable, Callable
 
 from service.crawl_request import CrawlRequest
+from pydantic import HttpUrl
 
 CANARY_TIMEOUT_SECONDS = 25
 
@@ -52,14 +54,16 @@ class CrawlMonitor:
             except TimeoutError:
                 return
             self.last_check = time.monotonic()
-            request = CrawlRequest.model_validate(
-                {
-                    "url": "https://example.com/",
-                    "cache_mode": "bypass",
-                    "max_retries": 0,
-                    "page_timeout": 15000,
-                    "domain_delay_seconds": 0,
-                }
+            # The owner-configured internal fixture is deliberately private. This bypass
+            # applies only here; the public /md request validator still rejects private URLs.
+            request = CrawlRequest.model_construct(
+                url=HttpUrl(
+                    os.getenv("LOCAL_WEB_CRAWL_CANARY_URL", "http://127.0.0.1:11235/health/canary")
+                ),
+                cache_mode="bypass",
+                max_retries=0,
+                page_timeout=15000,
+                domain_delay_seconds=0,
             )
             async with asyncio.timeout(CANARY_TIMEOUT_SECONDS):
                 result = await self.crawl(request)
@@ -68,7 +72,7 @@ class CrawlMonitor:
             if (
                 not getattr(result, "success", False)
                 or getattr(result, "status_code", None) != 200
-                or "example domain" not in str(body).lower()
+                or "local web browser canary" not in str(body).lower()
             ):
                 raise ValueError("canary_content_unverified")
             self.observe_success()

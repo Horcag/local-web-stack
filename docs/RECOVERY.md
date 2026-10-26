@@ -29,8 +29,10 @@ the host watchdog in this repository targets Linux/WSL.
   DNS resolution, a complete SOCKS5/HTTP CONNECT exchange through the configured proxy,
   and the browser canary. A listening SOCKS port alone cannot pass the crawler's proxy probe.
 - With `LOCAL_WEB_CRAWL_CANARY_ENABLED=true` (Compose default), a browser reads
-  `https://example.com/` every minute with cache bypass and checks HTTP 200 and actual
-  Example Domain content. It uses the same crawler and profile lock as user requests;
+  the service's own `/health/canary` fixture every minute with cache bypass and checks
+  HTTP 200 and actual fixture content. Compose addresses it through the proxy using
+  `http://crawl4ai:11235/health/canary` (`LOCAL_WEB_CRAWL_CANARY_URL`). This internal request
+  alone permits a private target; public `/md` validation is unchanged. It uses the same crawler and profile lock as user requests;
   busy traffic takes precedence. Two failed canaries or a success older than three
   minutes without a canary or verified fresh primary navigation makes the crawler unhealthy.
   Fresh reads cannot clear failed-canary counts; cached reads refresh neither state.

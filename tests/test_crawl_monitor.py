@@ -6,7 +6,7 @@ from service import crawl_monitor
 
 
 def success():
-    return SimpleNamespace(success=True, status_code=200, markdown="# Example Domain\nCanary")
+    return SimpleNamespace(success=True, status_code=200, markdown="# Local Web Browser Canary")
 
 
 def test_canary_checks_real_crawl_without_cache_then_recovers_after_failures():
@@ -18,6 +18,7 @@ def test_canary_checks_real_crawl_without_cache_then_recovers_after_failures():
         assert monitor.snapshot()["status"] == "healthy"
         request = crawl.await_args.args[0]
         assert request.cache_mode == "bypass" and request.max_retries == 0
+        assert str(request.url) == "http://127.0.0.1:11235/health/canary"
         await monitor.check()
         assert monitor.snapshot()["status"] == "healthy"
         await monitor.check()

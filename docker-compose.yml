@@ -150,6 +150,7 @@ services:
       CRAWL4AI_USER_DATA_DIR: "/app/work/browser-profile"
       CRAWL4AI_SERIALIZE_REQUESTS: "true"
       LOCAL_WEB_CRAWL_CANARY_ENABLED: "true"
+      LOCAL_WEB_CRAWL_CANARY_URL: "http://crawl4ai:11235/health/canary"
       LOCAL_WEB_CRAWL_TIMEOUT_SECONDS: "75"
       CRAWL4AI_PAGE_TIMEOUT_MS: "60000"
       CRAWL4AI_WAIT_UNTIL: "domcontentloaded"

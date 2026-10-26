@@ -22,7 +22,7 @@ from service.captcha_browser import recover_captcha
 from service.crawl_fallback import browser_fallback
 from service.crawl_execution import execute_crawl
 from service.health import readiness
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from service.research.content import assess_content
 
 app = FastAPI(title="Local Crawl4AI API", version="0.2.0")
@@ -230,6 +230,15 @@ async def _crawl(request: CrawlRequest) -> Any:
 @app.get("/live")
 async def live() -> dict[str, str]:
     return {"status": "alive", "service": "local-crawl4ai"}
+
+
+@app.get("/health/canary", response_class=HTMLResponse)
+async def browser_canary() -> str:
+    return (
+        "<!doctype html><html><title>Local Web Browser Canary</title><main>"
+        "<h1>Local Web Browser Canary</h1><p>This owned fixture verifies browser navigation "
+        "and content extraction without relying on a third-party page.</p></main></html>"
+    )
 
 
 @app.get("/health")
