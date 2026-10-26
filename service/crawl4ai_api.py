@@ -270,12 +270,12 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
             "next_action": "browser",
             "recovery": recovery,
         }
-        if request.method == "GET":
+        if request.method == "GET" and recovery["reason"] != "robots_denied":
             await _browser_fallback(str(request.url), payload)
         if payload.get("source") == "browser-fallback":
             return payload
         raise HTTPException(
-            504 if recovery["reason"] == "crawl_timeout" else 502,
+            {"crawl_timeout": 504, "robots_denied": 403}.get(recovery["reason"], 502),
             detail={
                 "reason": recovery["reason"],
                 "recovery": recovery,
@@ -284,9 +284,6 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
         )
 
     markdown_str = _markdown_text(result)
-    monitor = getattr(app.state, "crawl_monitor", None)
-    if monitor is not None:
-        monitor.observe_success()
 
     metadata = getattr(result, "metadata", None) or {}
     captcha = metadata.get("captcha_recovery")

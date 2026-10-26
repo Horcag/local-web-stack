@@ -120,3 +120,35 @@ def test_caller_cancellation_propagates_and_releases_lock():
         assert not lock.locked()
 
     asyncio.run(run())
+
+
+def test_robots_denial_does_not_bypass_policy_through_browser(monkeypatch):
+    crawl = AsyncMock(
+        return_value=SimpleNamespace(
+            success=False, status_code=403, error_message="Access denied by robots.txt"
+        )
+    )
+    runtime = SimpleNamespace(configured=True, read=AsyncMock())
+    monkeypatch.setattr(api, "_crawl", crawl)
+    monkeypatch.setattr(api.app.state, "browser_runtime", runtime)
+    with TestClient(api.app) as client:
+        response = client.post("/md", json={"url": URL, "check_robots_txt": True})
+    assert response.status_code == 403
+    assert response.json()["detail"]["reason"] == "robots_denied"
+    crawl.assert_awaited_once()
+    runtime.read.assert_not_awaited()
+
+
+def test_cached_reads_do_not_hide_failed_browser_canary(monkeypatch):
+    from service.crawl_monitor import CrawlMonitor
+
+    monitor = CrawlMonitor(AsyncMock(), asyncio.Lock())
+    monitor.failures = 2
+    monkeypatch.setattr(api.app.state, "crawl_monitor", monitor, raising=False)
+    # Avoid starting background work; this regression exercises a cache-hit /md response.
+    monkeypatch.setattr(monitor, "start", lambda: None)
+    monkeypatch.setattr(api, "_crawl", AsyncMock(return_value=result(cache_status="hit")))
+    with TestClient(api.app) as client:
+        assert client.post("/md", json={"url": URL}).status_code == 200
+    assert monitor.failures == 2 and monitor.last_success is None
+    assert monitor.snapshot()["status"] == "unhealthy"

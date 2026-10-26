@@ -32,7 +32,7 @@ the host watchdog in this repository targets Linux/WSL.
   `https://example.com/` every minute with cache bypass and checks HTTP 200 and actual
   Example Domain content. It uses the same crawler and profile lock as user requests;
   busy traffic takes precedence. Two failed canaries or a success older than three
-  minutes makes the crawler unhealthy. Successful primary reads refresh browser health.
+  minutes makes the crawler unhealthy. Cached user reads cannot refresh browser health.
 - MCP health calls its actual `tools/list` endpoint and verifies the core tools. The
   `local_web_health` tool also reports aggregate `healthy`/`degraded` status.
 
@@ -46,7 +46,8 @@ A GET read retries one transient crawler failure in a fresh browser, bypassing c
 The total primary crawl budget is 75 seconds (`LOCAL_WEB_CRAWL_TIMEOUT_SECONDS`), and the
 profile queue wait is bounded at ten seconds. An exhausted primary read also attempts
 the configured CDP browser, with a separate 30-second budget and the existing exact-target,
-HTTP-status and content checks. POST reads are never automatically replayed.
+HTTP-status and content checks. POST reads are never automatically replayed, and an explicit
+robots.txt denial is terminal across both acquisition routes.
 Responses retain sanitized attempt/fallback receipts; MCP preserves the recovery receipt.
 Unrecoverable failures remain errors and never become invented successful content.
 

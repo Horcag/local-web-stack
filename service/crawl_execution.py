@@ -59,6 +59,10 @@ async def execute_crawl(
                         receipt["reason"] = "recovered" if attempt else "completed"
                         return result, receipt
                     error = getattr(result, "error_message", "") or "Crawl failed"
+                    if request.check_robots_txt and "robots.txt" in str(error).lower():
+                        receipt["reason"] = "robots_denied"
+                        receipt["attempts"].append({"status": "denied", "transient": False})
+                        break
                     retryable = transient(error)
                 except Exception as exc:
                     retryable = transient(exc)
