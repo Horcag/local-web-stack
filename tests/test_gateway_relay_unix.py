@@ -197,14 +197,15 @@ def test_run_releases_activated_descriptor_on_start_failure(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_external_unix_socket_path_survives_relay_shutdown(tmp_path, monkeypatch):
+def test_external_unix_socket_path_survives_relay_shutdown(tmp_path):
     path = tmp_path / "gateway.sock"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    # AF_UNIX limits the address, not the filesystem path. Keep managed scratch usable.
-    monkeypatch.chdir(tmp_path)
+    # Pin this owned directory behind a short absolute address for AF_UNIX.
+    directory_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    address = f"/proc/self/fd/{directory_fd}/gateway.sock"
 
     async def scenario():
-        subject = relay.GatewayRelay(relay.RelayConfig(listen_unix_path=str(path)))
+        subject = relay.GatewayRelay(relay.RelayConfig(listen_unix_path=address))
         try:
             await subject.start(sock)
             assert path.is_socket()
@@ -213,11 +214,12 @@ def test_external_unix_socket_path_survives_relay_shutdown(tmp_path, monkeypatch
         assert path.is_socket(), "Relay shutdown removed the external owner's pathname"
 
     try:
-        sock.bind(path.name)
+        sock.bind(address)
         sock.listen()
         asyncio.run(scenario())
     finally:
         sock.close()
         # Only the test's socket owner removes its registered temporary pathname.
         path.unlink(missing_ok=True)
+        os.close(directory_fd)
     assert not path.exists()
