@@ -2,7 +2,7 @@ param([switch]$NoMcp)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
-$composeArgs = @("compose", "up", "-d", "--build")
+$composeArgs = @("compose", "up", "-d", "--build", "--wait", "--wait-timeout", "180")
 if ($NoMcp) { $composeArgs += @("--scale", "mcp=0") }
 & docker @composeArgs
 if ($LASTEXITCODE -ne 0) { throw "docker compose up failed" }

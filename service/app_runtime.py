@@ -23,9 +23,14 @@ def attach_research(app: FastAPI) -> None:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        monitor = getattr(app.state, "crawl_monitor", None)
+        if monitor is not None:
+            monitor.start()
         try:
             yield
         finally:
+            if monitor is not None:
+                await monitor.close()
             await browser.close()
 
     app.router.lifespan_context = lifespan

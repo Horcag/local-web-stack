@@ -138,6 +138,7 @@ async def read_url(url: str, cache_mode: str = "enabled") -> dict[str, Any]:
         "captcha": payload.get("captcha"),
         "initial_captcha": payload.get("initial_captcha"),
         "browser_fallback": payload.get("browser_fallback"),
+        "recovery": payload.get("recovery"),
         "status_code": payload.get("status_code"),
         "initial_status_code": payload.get("initial_status_code"),
         "links": payload.get("links")
@@ -176,6 +177,12 @@ async def local_web_health() -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             status["crawl4ai"] = repr(exc)
 
+    crawl = status["crawl4ai"]
+    status["status"] = (
+        "healthy"
+        if status["searxng"] == 200 and isinstance(crawl, dict) and crawl.get("status") == "healthy"
+        else "degraded"
+    )
     return status
 
 

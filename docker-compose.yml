@@ -1,5 +1,11 @@
 name: local-web-stack
 
+# Do not inherit a WSL-only resolver that Docker cannot forward to after reboot.
+# Docker's embedded resolver still handles service names on the Compose network.
+x-external-dns: &external-dns
+  - "${LOCAL_WEB_DNS_PRIMARY:-1.1.1.1}"
+  - "${LOCAL_WEB_DNS_SECONDARY:-8.8.8.8}"
+
 services:
   browser-relay:
     image: "${LOCAL_WEB_GATEWAY_RELAY_IMAGE:-local-web-stack-crawl4ai}"
@@ -58,24 +64,45 @@ services:
     container_name: local-web-valkey
     command: valkey-server --save 30 1 --loglevel warning
     restart: unless-stopped
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     volumes:
       - valkey-data:/data
 
   byedpi:
+    dns: *external-dns
     build:
       context: .
       dockerfile: Dockerfile.byedpi
     container_name: local-web-byedpi
     restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'nslookup example.com >/dev/null && nc -z -w 3 127.0.0.1 1080']
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 15s
     command: --ip 0.0.0.0 --port 1080 --auto=torst -s 1+s
 
   searxng:
+    dns: *external-dns
     image: searxng/searxng:2026.8.4-c63835bd2
     container_name: local-web-searxng
     restart: unless-stopped
     depends_on:
-      - redis
-      - byedpi
+      redis:
+        condition: service_healthy
+      byedpi:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, /usr/local/searxng/.venv/bin/python, -c, 'import socket, urllib.request; socket.getaddrinfo("example.com", 443); urllib.request.urlopen("http://127.0.0.1:8080/healthz", timeout=4).close()']
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
     ports:
       # On Windows hosts WinNAT re-rolls its dynamic TCP exclusion ranges at
       # boot and can swallow this port, after which Docker fails to bind with
@@ -94,6 +121,7 @@ services:
       - ./searxng:/etc/searxng:rw
 
   crawl4ai:
+    dns: *external-dns
     build: .
     container_name: local-web-crawl4ai
     # tini as PID 1: uvicorn does not reap orphaned Chrome children, and the
@@ -101,7 +129,14 @@ services:
     init: true
     restart: unless-stopped
     depends_on:
-      - byedpi
+      byedpi:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, .venv/bin/python, -m, service.healthcheck, crawl4ai]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     ports:
       - "127.0.0.1:11235:11235"
     environment:
@@ -114,6 +149,8 @@ services:
       CRAWL4AI_PERSISTENT_CONTEXT: "true"
       CRAWL4AI_USER_DATA_DIR: "/app/work/browser-profile"
       CRAWL4AI_SERIALIZE_REQUESTS: "true"
+      LOCAL_WEB_CRAWL_CANARY_ENABLED: "true"
+      LOCAL_WEB_CRAWL_TIMEOUT_SECONDS: "75"
       CRAWL4AI_PAGE_TIMEOUT_MS: "60000"
       CRAWL4AI_WAIT_UNTIL: "domcontentloaded"
       # crawl4ai's overlay heuristic strips any element it reads as a modal.
@@ -156,8 +193,16 @@ services:
     container_name: local-web-mcp
     restart: unless-stopped
     depends_on:
-      - searxng
-      - crawl4ai
+      searxng:
+        condition: service_healthy
+      crawl4ai:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, .venv/bin/python, -m, service.healthcheck, mcp]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     ports:
       - "127.0.0.1:8765:8765"
     environment:

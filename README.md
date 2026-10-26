@@ -7,13 +7,15 @@ handles pages requiring interaction. A small dashboard keeps runs, source status
 ## Start
 
 ```sh
-docker compose up -d --build
+bash scripts/up.sh
 ```
 
 Open **http://127.0.0.1:11235/** for the research workspace. The same service exposes
 [OpenAPI](http://127.0.0.1:11235/docs); the MCP endpoint is `http://127.0.0.1:8765/mcp`
 (Streamable HTTP). Windows helpers remain available in `scripts/up.ps1` and `scripts/verify.ps1`.
 Docker needs an amd64 Linux environment; the image installs Google Chrome, Chromium and Xvfb.
+Linux/WSL startup also enables the host watchdog. See [health and recovery](docs/RECOVERY.md)
+for probes, restart limits, DNS configuration and deployments without systemd.
 
 ## Research workflow
 

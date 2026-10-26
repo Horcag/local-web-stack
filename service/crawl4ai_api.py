@@ -5,7 +5,7 @@ import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlparse
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from fastapi import FastAPI, HTTPException
@@ -18,7 +18,11 @@ from service.crawl_defaults import (
 )
 from service.crawl_request import CrawlRequest as CrawlRequest
 from service.captcha_solver import CaptchaSolver
-from service.captcha_browser import _at_target, recover_captcha
+from service.captcha_browser import recover_captcha
+from service.crawl_fallback import browser_fallback
+from service.crawl_execution import execute_crawl
+from service.health import readiness
+from fastapi.responses import JSONResponse
 from service.research.content import assess_content
 
 app = FastAPI(title="Local Crawl4AI API", version="0.2.0")
@@ -220,111 +224,69 @@ async def _crawl(request: CrawlRequest) -> Any:
         return result
     finally:
         with suppress(Exception):
-            await crawler.close()
+            await asyncio.wait_for(crawler.close(), timeout=10)
+
+
+@app.get("/live")
+async def live() -> dict[str, str]:
+    return {"status": "alive", "service": "local-crawl4ai"}
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "healthy", "service": "local-crawl4ai"}
+async def health() -> JSONResponse:
+    status = await readiness()
+    monitor = getattr(app.state, "crawl_monitor", None)
+    if monitor is not None:
+        status["checks"]["crawler"] = monitor.snapshot()
+        if status["checks"]["crawler"]["status"] != "healthy":
+            status["status"] = "degraded"
+    return JSONResponse(status, status_code=200 if status["status"] == "healthy" else 503)
 
 
 async def _browser_fallback(url: str, payload: dict[str, Any]) -> None:
-    runtime = getattr(app.state, "browser_runtime", None)
-    if runtime is None or not runtime.configured:
-        return
-    receipt: dict[str, Any] = {
-        "status": "rejected",
-        "captcha_recovery_allowed": False,
-        "initial_assessment": payload["assessment"],
-    }
-    payload["browser_fallback"] = receipt
-    try:
-        async with asyncio.timeout(_BROWSER_FALLBACK_TIMEOUT_SECONDS):
-            browser = await runtime.read(url, allow_captcha_recovery=False)
-        if not isinstance(browser, dict):
-            receipt["reason"] = "no_browser_result"
-            return
-        actual_url = browser.get("url")
-        if not isinstance(actual_url, str):
-            receipt["reason"] = "target_unverified"
-            return
-        actual = urlsplit(actual_url)
-        if (
-            not _at_target(actual_url, url)
-            or actual.username is not None
-            or actual.password is not None
-        ):
-            receipt["reason"] = "target_unverified"
-            return
-        status_code = browser.get("status_code")
-        if type(status_code) is not int or not 200 <= status_code < 300:
-            receipt["reason"] = "http_status_unverified"
-            return
-        body, title = browser.get("markdown"), browser.get("title")
-        captcha = browser.get("captcha")
-        if (
-            not isinstance(body, str)
-            or not isinstance(title, str)
-            or captcha is not None
-            and not isinstance(captcha, dict)
-        ):
-            receipt["reason"] = "invalid_browser_content"
-            return
-        assessment = assess_content(body, title, status_code, captcha)
-        receipt.update(status_code=status_code, assessment=assessment, captcha=captcha)
-        heading = next((line.strip() for line in body.splitlines() if line.strip()), "")
-        if (
-            assessment["status"] != "read"
-            or browser.get("truncated")
-            or any(
-                value.strip(" #").lower() in {"privacy error", "your connection is not private"}
-                for value in (title, heading)
-            )
-        ):
-            receipt["reason"] = "content_unverified"
-            return
-        method = browser.get("method") or "browser"
-        receipt.update(status="accepted", url=actual_url, method=method)
-        payload.update(
-            markdown=body,
-            title=title,
-            links=browser.get("links") or [],
-            status_code=status_code,
-            assessment=assessment,
-            next_action=None,
-            source="browser-fallback",
-            method=method,
-            initial_captcha=payload["captcha"],
-            captcha=captcha,
-            metadata={
-                **payload["metadata"],
-                "title": title,
-                "initial_captcha_recovery": payload["captcha"],
-                "captcha_recovery": captcha,
-            },
-        )
-    except TimeoutError:
-        receipt["reason"] = "browser_read_timeout"
-    except Exception:
-        receipt["reason"] = "browser_read_failed"
+    await browser_fallback(
+        getattr(app.state, "browser_runtime", None),
+        url,
+        payload,
+        _BROWSER_FALLBACK_TIMEOUT_SECONDS,
+    )
 
 
 @app.post("/md")
 async def markdown(request: CrawlRequest) -> dict[str, Any]:
-    try:
-        if request.serialize_requests:
-            async with _CRAWL_LOCK:
-                result = await _crawl(request)
-        else:
-            result = await _crawl(request)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=repr(exc)) from exc
-
-    if not getattr(result, "success", False):
-        error = getattr(result, "error_message", None) or "Crawl failed"
-        raise HTTPException(status_code=502, detail=error)
+    result, recovery = await execute_crawl(request, _crawl, _CRAWL_LOCK)
+    if result is None:
+        payload = {
+            "url": str(request.url),
+            "cache_mode": request.cache_mode,
+            "status_code": None,
+            "initial_status_code": None,
+            "markdown": "",
+            "title": None,
+            "links": {},
+            "metadata": {},
+            "captcha": None,
+            "assessment": {"status": "failed", "reasons": [recovery["reason"]]},
+            "next_action": "browser",
+            "recovery": recovery,
+        }
+        if request.method == "GET":
+            await _browser_fallback(str(request.url), payload)
+        if payload.get("source") == "browser-fallback":
+            return payload
+        raise HTTPException(
+            504 if recovery["reason"] == "crawl_timeout" else 502,
+            detail={
+                "reason": recovery["reason"],
+                "recovery": recovery,
+                "browser_fallback": payload.get("browser_fallback"),
+            },
+        )
 
     markdown_str = _markdown_text(result)
+    monitor = getattr(app.state, "crawl_monitor", None)
+    if monitor is not None:
+        monitor.observe_success()
 
     metadata = getattr(result, "metadata", None) or {}
     captcha = metadata.get("captcha_recovery")
@@ -343,6 +305,7 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
     payload = {
         "url": str(request.url),
         "cache_mode": request.cache_mode,
+        "recovery": recovery,
         "status_code": status_code,
         "initial_status_code": initial_status,
         "effective_cache_mode": metadata.get("captcha_cache_mode", request.cache_mode),
@@ -363,7 +326,10 @@ async def markdown(request: CrawlRequest) -> dict[str, Any]:
 
 def _attach_research() -> None:
     from service.app_runtime import attach_research
+    from service.crawl_monitor import CrawlMonitor
 
+    if _env_bool("LOCAL_WEB_CRAWL_CANARY_ENABLED", False):
+        app.state.crawl_monitor = CrawlMonitor(_crawl, _CRAWL_LOCK)
     attach_research(app)
 
 
